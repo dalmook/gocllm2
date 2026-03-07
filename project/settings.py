@@ -64,6 +64,11 @@ class Settings:
     enable_recall: bool = os.getenv("ENABLE_RECALL", "false").lower() == "true"
     term_admin_room_ids_csv: str = os.getenv("TERM_ADMIN_ROOM_IDS", "")
     warn_query_id: str = os.getenv("WARN_QUERY_ID", "")
+    enable_push_scheduler: bool = os.getenv("ENABLE_PUSH_SCHEDULER", "true").lower() == "true"
+    issue_summary_push_hhmm: str = os.getenv("ISSUE_SUMMARY_PUSH_HHMM", "08:00")
+    warn_push_hhmm: str = os.getenv("WARN_PUSH_HHMM", "08:35")
+    dashboard_token: str = os.getenv("DASHBOARD_TOKEN", "")
+    dashboard_title: str = os.getenv("DASHBOARD_TITLE", "GOC Issue Dashboard")
 
 
 settings = Settings()

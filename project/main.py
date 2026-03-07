@@ -5,12 +5,14 @@ import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .chatbot.access import AllowlistService
 from .chatbot.async_dispatch import AsyncLLMDispatcher
 from .chatbot.issue_store import IssueStore
 from .chatbot.memory import ConversationMemory, MemoryConfig
+from .chatbot.push_jobs import PushJobManager
 from .chatbot.service import ChatbotService
 from .chatbot.watchroom_store import WatchroomStore
 from .chatbot.knox import KnoxMessenger
@@ -36,6 +38,7 @@ synthesizer = Synthesizer(llm)
 chatbot_service: Optional[ChatbotService] = None
 allowlist_service = AllowlistService()
 async_dispatcher: Optional[AsyncLLMDispatcher] = None
+push_job_manager: Optional[PushJobManager] = None
 issue_store = IssueStore(db_path=settings.issue_db_path)
 watchroom_store = WatchroomStore(db_path=settings.watchroom_db_path)
 memory_store = ConversationMemory(
@@ -159,6 +162,11 @@ class AskRequest(BaseModel):
     question: str
 
 
+def _require_dashboard_token(token: Optional[str]) -> None:
+    if settings.dashboard_token and (token or "") != settings.dashboard_token:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "queries": len(registry.list_for_planner())}
@@ -169,9 +177,50 @@ def ask(req: AskRequest) -> Dict[str, Any]:
     return _ask_core(req.question)
 
 
+@app.get("/api/watchrooms")
+def api_watchrooms(token: Optional[str] = None) -> Dict[str, Any]:
+    _require_dashboard_token(token)
+    return {"items": watchroom_store.list_rooms()}
+
+
+@app.get("/api/dashboard/issues")
+def api_dashboard_issues(token: Optional[str] = None, room_id: str = "", status: str = "OPEN", limit: int = 100) -> Dict[str, Any]:
+    _require_dashboard_token(token)
+    if room_id:
+        items = issue_store.list_issues(scope_room_id=room_id, status=status, limit=limit)
+        return {"items": items, "total": len(items)}
+    all_items = []
+    for r in watchroom_store.list_rooms():
+        rid = str(r.get("room_id", ""))
+        if not rid:
+            continue
+        all_items.extend(issue_store.list_issues(scope_room_id=rid, status=status, limit=limit))
+    return {"items": all_items, "total": len(all_items)}
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard(token: Optional[str] = None):
+    if settings.dashboard_token and (token or "") != settings.dashboard_token:
+        return HTMLResponse(
+            "<html><body><h3>Dashboard Login</h3><p>?token=... 파라미터를 넣어주세요.</p></body></html>",
+            status_code=401,
+        )
+    return HTMLResponse(
+        f"""<html><head><title>{settings.dashboard_title}</title></head>
+<body>
+<h2>{settings.dashboard_title}</h2>
+<p>API:</p>
+<ul>
+<li>/api/watchrooms?token=...</li>
+<li>/api/dashboard/issues?token=...&room_id=...</li>
+</ul>
+</body></html>"""
+    )
+
+
 @app.on_event("startup")
 def startup_chatbot() -> None:
-    global chatbot_service, async_dispatcher
+    global chatbot_service, async_dispatcher, push_job_manager
     memory_store.init_db()
     issue_store.init_db()
     watchroom_store.init_db()
@@ -217,6 +266,16 @@ def startup_chatbot() -> None:
             term_admin_room_ids=[int(x) for x in settings.term_admin_room_ids_csv.split(",") if x.strip().isdigit()],
             warn_runner=_run_warn_once_message,
         )
+        if settings.enable_push_scheduler:
+            push_job_manager = PushJobManager(
+                watchroom_store=watchroom_store,
+                issue_store=issue_store,
+                send_text_fn=lambda rid, msg: bot.send_text(int(rid), msg),
+                warn_message_fn=_run_warn_once_message,
+                issue_summary_hhmm=settings.issue_summary_push_hhmm,
+                warn_hhmm=settings.warn_push_hhmm,
+            )
+            push_job_manager.start()
         logger.info("knox chatbot connected")
     except Exception as e:
         chatbot_service = None
@@ -238,3 +297,9 @@ async def post_message(request: Request) -> Dict[str, Any]:
             return {"ok": False, "error": f"invalid message payload: {e}"}
 
     return chatbot_service.handle_message(info)
+
+
+@app.on_event("shutdown")
+def shutdown_jobs() -> None:
+    if push_job_manager is not None:
+        push_job_manager.stop()

@@ -30,6 +30,10 @@
 - `WATCHROOM_DB_PATH` (미설정 시 `gocllm_watchrooms.db`)
 - `TERM_ADMIN_ROOM_IDS` (쉼표로 구분한 room id 목록)
 - `WARN_QUERY_ID` (워닝 조회에 사용할 query_registry id)
+- `ENABLE_PUSH_SCHEDULER` (기본: `true`)
+- `ISSUE_SUMMARY_PUSH_HHMM` (기본: `08:00`)
+- `WARN_PUSH_HHMM` (기본: `08:35`)
+- `DASHBOARD_TOKEN` (미설정 시 토큰 없이 접근)
 
 ## 3) 쿼리 카탈로그 검증
 ```bash
@@ -50,6 +54,12 @@ uvicorn project.main:app --host 0.0.0.0 --port 8010 --reload
 Health check:
 ```bash
 curl http://127.0.0.1:8010/health
+```
+
+Dashboard:
+```bash
+curl "http://127.0.0.1:8010/api/watchrooms?token=YOUR_TOKEN"
+curl "http://127.0.0.1:8010/api/dashboard/issues?token=YOUR_TOKEN&room_id=12345"
 ```
 
 질문:
