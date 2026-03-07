@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from .chatbot.access import AllowlistService
+from .chatbot.async_dispatch import AsyncLLMDispatcher
 from .chatbot.memory import ConversationMemory, MemoryConfig
 from .chatbot.service import ChatbotService
 from .chatbot.knox import KnoxMessenger
@@ -32,6 +33,7 @@ executor = Executor(registry)
 synthesizer = Synthesizer(llm)
 chatbot_service: Optional[ChatbotService] = None
 allowlist_service = AllowlistService()
+async_dispatcher: Optional[AsyncLLMDispatcher] = None
 memory_store = ConversationMemory(
     MemoryConfig(
         enabled=settings.enable_conversation_memory,
@@ -149,7 +151,7 @@ def ask(req: AskRequest) -> Dict[str, Any]:
 
 @app.on_event("startup")
 def startup_chatbot() -> None:
-    global chatbot_service
+    global chatbot_service, async_dispatcher
     memory_store.init_db()
     if not (settings.knox_system_id and settings.knox_token):
         logger.info("knox chatbot disabled (missing KNOX_SYSTEM_ID/KNOX_TOKEN)")
@@ -164,6 +166,18 @@ def startup_chatbot() -> None:
         )
         bot.device_regist()
         bot.get_keys()
+        async_dispatcher = AsyncLLMDispatcher(
+            ask_fn=_ask_core,
+            messenger=bot,
+            memory_store=memory_store,
+            workers=max(1, settings.llm_workers),
+            queue_max=max(1, settings.llm_job_queue_max),
+            max_concurrent=max(1, settings.llm_max_concurrent),
+            busy_message=settings.llm_busy_message,
+            queue_full_message=settings.llm_queue_full_message,
+            long_wait_delay_sec=settings.llm_long_wait_delay_sec,
+        )
+        async_dispatcher.start_workers()
         chatbot_service = ChatbotService(
             messenger=bot,
             ask_fn=_ask_core,
@@ -174,6 +188,7 @@ def startup_chatbot() -> None:
             only_single_chat=settings.llm_only_single_chat,
             is_allowed_user_fn=allowlist_service.is_allowed,
             memory_store=memory_store,
+            async_dispatcher=async_dispatcher,
         )
         logger.info("knox chatbot connected")
     except Exception as e:

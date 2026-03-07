@@ -39,6 +39,17 @@ class DummyMemory:
         return None
 
 
+class DummyDispatcher:
+    def __init__(self, enqueue_ok=True):
+        self.queue_full_message = "요청이 많아 잠시 후 다시 시도해주세요."
+        self.jobs = []
+        self.enqueue_ok = enqueue_ok
+
+    def enqueue(self, job):
+        self.jobs.append(job)
+        return self.enqueue_ok
+
+
 def _service(*, only_single_chat=True, allowed=True):
     memory = DummyMemory()
     return ChatbotService(
@@ -82,3 +93,24 @@ def test_service_reset_command_clears_memory():
     out = svc.handle_message({"chatroomId": 99, "chatType": "SINGLE", "chatMsg": "/reset", "senderKnoxId": "u"})
     assert out["ok"] is True
     assert "99" in svc.memory_store.cleared
+
+
+def test_service_uses_async_dispatcher_when_provided():
+    memory = DummyMemory()
+    dispatcher = DummyDispatcher(enqueue_ok=True)
+    svc = ChatbotService(
+        messenger=DummyMessenger(),
+        ask_fn=lambda q, memory_text="": {"answer": f"ans:{q}|mem:{memory_text}", "intent": "data_only", "request_id": "r1"},
+        llm_chat_default_mode="single",
+        llm_group_mention_text="@공급망 챗봇",
+        llm_group_prefixes=["봇", "챗봇"],
+        memory_reset_commands=["/reset"],
+        only_single_chat=True,
+        is_allowed_user_fn=(lambda _s: True),
+        memory_store=memory,
+        async_dispatcher=dispatcher,
+    )
+
+    out = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": "안녕", "senderKnoxId": "u"})
+    assert out["ok"] is True
+    assert len(dispatcher.jobs) == 1

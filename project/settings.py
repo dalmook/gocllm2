@@ -53,6 +53,12 @@ class Settings:
         "SELECT SSO_ID FROM SCM_WP.T_T_FOR_MASTER A WHERE 1=1 AND a.sso_id in ('hy73.park','cheon.kim','suy.kim','kyungchan.seong','jh3.park','junsoo.jung','jjlive.kim','jc2573.lee','hs1979.kim','sunok78.han','sungmook.cho','hsung.chae','sj82.han','w2635.lee','sung.w.jung') AND A.DEPT_NAME LIKE '%메모리%' and a.POSITION_CODE is not null AND A.SSO_ID NOT IN ('SCM.RPA','SCM 봇','메모리STO2','메모리 STO','dalbong.chatbot01', 'dalbongbot01', 'dalbong.bot01', 'command.center', 'thatcoolguy')",
     )
     llm_allowed_users_cache_ttl_sec: int = int(os.getenv("LLM_ALLOWED_USERS_CACHE_TTL_SEC", "1800"))
+    llm_workers: int = int(os.getenv("LLM_WORKERS", "4"))
+    llm_job_queue_max: int = int(os.getenv("LLM_JOB_QUEUE_MAX", "200"))
+    llm_max_concurrent: int = int(os.getenv("LLM_MAX_CONCURRENT", "4"))
+    llm_busy_message: str = os.getenv("LLM_BUSY_MESSAGE", "지금 답변 생성 중입니다. 완료 후 다시 질문해주세요.")
+    llm_queue_full_message: str = os.getenv("LLM_QUEUE_FULL_MESSAGE", "요청이 많아 잠시 후 다시 시도해주세요.")
+    llm_long_wait_delay_sec: float = float(os.getenv("LLM_LONG_WAIT_DELAY_SEC", "6.0"))
 
 
 settings = Settings()

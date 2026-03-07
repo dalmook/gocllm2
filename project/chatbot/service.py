@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any, Callable, Dict, List, Tuple
 
+from .async_dispatch import AsyncLLMDispatcher
 from .cards import build_home_card, build_quick_links_card, build_quicklink_card
 from .formatters import format_for_knox_text
 from .memory import ConversationMemory
@@ -36,6 +38,7 @@ class ChatbotService:
         only_single_chat: bool,
         is_allowed_user_fn: Callable[[str], bool],
         memory_store: ConversationMemory,
+        async_dispatcher: AsyncLLMDispatcher | None = None,
         quick_link_aliases: List[Tuple[List[str], str, str]] | None = None,
     ):
         self.messenger = messenger
@@ -47,6 +50,7 @@ class ChatbotService:
         self.only_single_chat = bool(only_single_chat)
         self.is_allowed_user_fn = is_allowed_user_fn
         self.memory_store = memory_store
+        self.async_dispatcher = async_dispatcher
         self.quick_link_aliases = quick_link_aliases or DEFAULT_QUICK_LINK_ALIASES
 
     def decrypt_request(self, body: bytes) -> Dict[str, Any]:
@@ -118,6 +122,22 @@ class ChatbotService:
             effective_question, state = self.memory_store.build_effective_question(scope_id=scope_id, question=question)
 
             self.messenger.send_text(chatroom_id, "🤔 검색 중입니다. 잠시만 기다려주세요...")
+            if self.async_dispatcher is not None:
+                job = {
+                    "request_id": str(uuid.uuid4()),
+                    "chatroom_id": chatroom_id,
+                    "scope_id": scope_id,
+                    "sender_knox": sender_knox,
+                    "sender_name": info.get("senderName", "") or "",
+                    "chat_type": chat_type,
+                    "memory_text": memory_text,
+                    "effective_question": effective_question,
+                    "state": state,
+                }
+                if not self.async_dispatcher.enqueue(job):
+                    self.messenger.send_text(chatroom_id, self.async_dispatcher.queue_full_message)
+                return {"ok": True}
+
             try:
                 result = self.ask_fn(effective_question, memory_text=memory_text)
                 answer = str(result.get("answer") or "답변을 생성하지 못했습니다.")
