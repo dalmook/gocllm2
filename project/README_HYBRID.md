@@ -27,6 +27,12 @@ python project/scripts/validate_queries.py
 ```
 
 ## 4) API 서버 실행
+패키지 설치:
+```bash
+pip install -r project/requirements.txt
+```
+
+서버 실행:
 ```bash
 uvicorn project.main:app --host 0.0.0.0 --port 8010 --reload
 ```
@@ -46,7 +52,8 @@ curl -s -X POST http://127.0.0.1:8010/ask \
 Knox 챗봇 Webhook:
 - `POST /message`
 - `KNOX_SYSTEM_ID`, `KNOX_TOKEN` 설정 시 startup에서 자동 연결
-- LLM 트리거는 기존과 동일하게 `SINGLE 일반문장`, `/ask`, `질문:`, `GROUP 멘션/접두어` 지원
+- 기본 정책: `SINGLE(1:1)` + 권한 사용자(`LLM_ALLOWED_USERS_SQL`)만 LLM 응답
+- `LLM_ONLY_SINGLE_CHAT=false`로 설정하면 그룹 트리거(멘션/접두어) 확장 가능
 
 ## 5) 테스트
 ```bash

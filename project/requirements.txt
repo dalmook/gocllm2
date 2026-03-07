@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic>=2
+langchain-openai
+langchain-core
+oracledb
+pandas
+requests
+pycryptodomex
+PyYAML
+pytest
