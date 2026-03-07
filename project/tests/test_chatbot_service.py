@@ -49,6 +49,36 @@ class DummyDispatcher:
         self.jobs.append(job)
         return self.enqueue_ok
 
+    def register_notice(self, req_id, resp):
+        return None
+
+
+class DummyIssueStore:
+    def __init__(self):
+        self.issues = []
+        self.next_id = 1
+
+    def list_issues(self, **kwargs):
+        return list(self.issues)
+
+    def create_issue(self, **kwargs):
+        iid = self.next_id
+        self.next_id += 1
+        self.issues.insert(0, {"issue_id": iid, "title": kwargs.get("title", ""), "owner": kwargs.get("owner", "")})
+        return iid
+
+    def clear_issue(self, **kwargs):
+        return True
+
+    def get_issue(self, issue_id):
+        return {"issue_id": issue_id, "title": "t", "content": "", "owner": "", "target_date": "", "url": ""}
+
+    def update_issue(self, **kwargs):
+        return True
+
+    def list_events(self, **kwargs):
+        return [{"action": "CREATE", "actor": "u", "memo": "m", "created_at": "2026-01-01"}]
+
 
 def _service(*, only_single_chat=True, allowed=True):
     memory = DummyMemory()
@@ -62,6 +92,7 @@ def _service(*, only_single_chat=True, allowed=True):
         only_single_chat=only_single_chat,
         is_allowed_user_fn=(lambda _s: allowed),
         memory_store=memory,
+        issue_store=DummyIssueStore(),
     )
 
 
@@ -109,8 +140,21 @@ def test_service_uses_async_dispatcher_when_provided():
         is_allowed_user_fn=(lambda _s: True),
         memory_store=memory,
         async_dispatcher=dispatcher,
+        issue_store=DummyIssueStore(),
     )
 
     out = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": "안녕", "senderKnoxId": "u"})
     assert out["ok"] is True
     assert len(dispatcher.jobs) == 1
+
+
+def test_service_issue_form_and_create():
+    svc = _service(only_single_chat=True, allowed=True)
+    out1 = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": "/issue", "senderKnoxId": "u"})
+    assert out1["ok"] is True
+    assert svc.messenger.sent[-1][0] == "card"
+
+    payload_msg = '{"action":"ISSUE_CREATE","title":"테스트 이슈","content":"c","owner":"u","room_id":"1"}'
+    out2 = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": payload_msg, "senderKnoxId": "u", "senderName": "u"})
+    assert out2["ok"] is True
+    assert any(x[0] == "text" and "등록 완료" in x[2] for x in svc.messenger.sent)

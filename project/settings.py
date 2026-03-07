@@ -47,6 +47,7 @@ class Settings:
     memory_summarize_assistant: bool = os.getenv("MEMORY_SUMMARIZE_ASSISTANT", "true").lower() == "true"
     enable_conversation_state: bool = os.getenv("ENABLE_CONVERSATION_STATE", "true").lower() == "true"
     memory_db_path: str = os.getenv("MEMORY_DB_PATH", "")
+    issue_db_path: str = os.getenv("ISSUE_DB_PATH", "")
     llm_only_single_chat: bool = os.getenv("LLM_ONLY_SINGLE_CHAT", "true").lower() == "true"
     llm_allowed_users_sql: str = os.getenv(
         "LLM_ALLOWED_USERS_SQL",
@@ -59,6 +60,7 @@ class Settings:
     llm_busy_message: str = os.getenv("LLM_BUSY_MESSAGE", "지금 답변 생성 중입니다. 완료 후 다시 질문해주세요.")
     llm_queue_full_message: str = os.getenv("LLM_QUEUE_FULL_MESSAGE", "요청이 많아 잠시 후 다시 시도해주세요.")
     llm_long_wait_delay_sec: float = float(os.getenv("LLM_LONG_WAIT_DELAY_SEC", "6.0"))
+    enable_recall: bool = os.getenv("ENABLE_RECALL", "false").lower() == "true"
 
 
 settings = Settings()

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from .chatbot.access import AllowlistService
 from .chatbot.async_dispatch import AsyncLLMDispatcher
+from .chatbot.issue_store import IssueStore
 from .chatbot.memory import ConversationMemory, MemoryConfig
 from .chatbot.service import ChatbotService
 from .chatbot.knox import KnoxMessenger
@@ -34,6 +35,7 @@ synthesizer = Synthesizer(llm)
 chatbot_service: Optional[ChatbotService] = None
 allowlist_service = AllowlistService()
 async_dispatcher: Optional[AsyncLLMDispatcher] = None
+issue_store = IssueStore(db_path=settings.issue_db_path)
 memory_store = ConversationMemory(
     MemoryConfig(
         enabled=settings.enable_conversation_memory,
@@ -153,6 +155,7 @@ def ask(req: AskRequest) -> Dict[str, Any]:
 def startup_chatbot() -> None:
     global chatbot_service, async_dispatcher
     memory_store.init_db()
+    issue_store.init_db()
     if not (settings.knox_system_id and settings.knox_token):
         logger.info("knox chatbot disabled (missing KNOX_SYSTEM_ID/KNOX_TOKEN)")
         return
@@ -176,6 +179,7 @@ def startup_chatbot() -> None:
             busy_message=settings.llm_busy_message,
             queue_full_message=settings.llm_queue_full_message,
             long_wait_delay_sec=settings.llm_long_wait_delay_sec,
+            enable_recall=settings.enable_recall,
         )
         async_dispatcher.start_workers()
         chatbot_service = ChatbotService(
@@ -189,6 +193,7 @@ def startup_chatbot() -> None:
             is_allowed_user_fn=allowlist_service.is_allowed,
             memory_store=memory_store,
             async_dispatcher=async_dispatcher,
+            issue_store=issue_store,
         )
         logger.info("knox chatbot connected")
     except Exception as e:

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import threading
 
-import oracledb
-
 from .settings import settings
 
 _init_lock = threading.Lock()
@@ -31,6 +29,7 @@ def ensure_oracle_client_mode() -> None:
             kwargs["config_dir"] = settings.oracle_client_config_dir.strip()
 
         try:
+            import oracledb
             oracledb.init_oracle_client(**kwargs)
         except Exception as e:
             raise RuntimeError(

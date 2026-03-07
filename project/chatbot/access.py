@@ -4,8 +4,6 @@ import threading
 import time
 from typing import Set
 
-import oracledb
-
 from ..oracle_client import ensure_oracle_client_mode
 from ..settings import settings
 
@@ -17,6 +15,8 @@ class AllowlistService:
         self._expire_at: float = 0.0
 
     def _dsn(self) -> str:
+        import oracledb
+
         if settings.oracle_dsn:
             return settings.oracle_dsn
         return oracledb.makedsn(
@@ -60,7 +60,11 @@ class AllowlistService:
         try:
             allowed = self._fetch_allowed_users()
         except Exception:
-            # DB 장애 시 fail-closed 유지
+            # DB 장애 시 stale cache fallback
+            with self._lock:
+                if self._cache:
+                    self._expire_at = now_ts + 60.0
+                    return sid in self._cache
             allowed = set()
 
         with self._lock:

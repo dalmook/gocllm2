@@ -128,3 +128,12 @@ class KnoxMessenger:
             ],
         }
         return self._post_encrypted(api, body)
+
+    def recall_message(self, chatroom_id: int, msg_id: int, sent_time: int) -> Dict[str, Any]:
+        api = "/messenger/message/api/v1.0/message/recallMessageRequest"
+        body = {
+            "chatroomId": int(chatroom_id),
+            "msgId": int(msg_id),
+            "sentTime": int(sent_time),
+        }
+        return self._post_encrypted(api, body)

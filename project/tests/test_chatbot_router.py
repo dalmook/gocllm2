@@ -34,3 +34,9 @@ def test_single_shortcut_open_url():
     action, payload = _parse({"chatMsg": "/gscm", "chatType": "SINGLE"})
     assert action == "OPEN_URL"
     assert payload["url"].startswith("https://")
+
+
+def test_issue_command_routes_issue_form():
+    action, payload = _parse({"chatMsg": "/issue", "chatType": "SINGLE"})
+    assert action == "ISSUE_FORM"
+    assert payload == {}

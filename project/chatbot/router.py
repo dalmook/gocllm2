@@ -62,6 +62,11 @@ def parse_action_payload(
         return "INTRO", {}
     if txt in ("바로가기", "/바로가기", "링크", "/links", "links"):
         return "QUICK_LINKS", {}
+    if txt.startswith("/issue"):
+        if txt.strip() in ("/issue", "/issue form"):
+            return "ISSUE_FORM", {}
+        if txt.strip() in ("/issues", "/issue list"):
+            return "ISSUE_LIST", {}
 
     if chat_type == "SINGLE":
         key = txt_u[1:] if txt_u.startswith("/") else txt_u

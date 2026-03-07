@@ -24,6 +24,7 @@ class AsyncLLMDispatcher:
         busy_message: str,
         queue_full_message: str,
         long_wait_delay_sec: float = 6.0,
+        enable_recall: bool = False,
     ):
         self.ask_fn = ask_fn
         self.messenger = messenger
@@ -31,6 +32,7 @@ class AsyncLLMDispatcher:
         self.busy_message = busy_message
         self.queue_full_message = queue_full_message
         self.long_wait_delay_sec = max(1.0, float(long_wait_delay_sec))
+        self.enable_recall = bool(enable_recall)
 
         self._queue: "queue.Queue[dict]" = queue.Queue(maxsize=max(1, queue_max))
         self._sem = threading.Semaphore(max(1, max_concurrent))
@@ -41,6 +43,8 @@ class AsyncLLMDispatcher:
         self._workers = max(1, workers)
         self._started = False
         self._start_lock = threading.Lock()
+        self._notice_lock = threading.Lock()
+        self._notices: Dict[str, list[tuple[int, int]]] = {}
 
     def start_workers(self) -> None:
         if self._started:
@@ -76,6 +80,53 @@ class AsyncLLMDispatcher:
         except queue.Full:
             return False
 
+    def _extract_msgid_senttime(self, resp: dict) -> tuple[int | None, int | None]:
+        if not isinstance(resp, dict):
+            return None, None
+        pme = resp.get("processedMessageEntries")
+        if isinstance(pme, list) and pme:
+            x = pme[0] or {}
+            mid = x.get("msgId")
+            st = x.get("sentTime")
+            if mid is not None and st is not None:
+                return int(mid), int(st)
+        for k in ("chatReplyResultList", "chatReplyResults", "resultList", "data", "results"):
+            v = resp.get(k)
+            if isinstance(v, list) and v:
+                x = v[0] or {}
+                mid = x.get("msgId") or x.get("messageId") or x.get("msgID")
+                st = x.get("sentTime") or x.get("sendTime") or x.get("sent_time")
+                if mid is not None and st is not None:
+                    return int(mid), int(st)
+        mid = resp.get("msgId") or resp.get("messageId") or resp.get("msgID")
+        st = resp.get("sentTime") or resp.get("sendTime") or resp.get("sent_time")
+        if mid is not None and st is not None:
+            return int(mid), int(st)
+        return None, None
+
+    def register_notice(self, req_id: str, resp: Any) -> None:
+        if not self.enable_recall or not req_id:
+            return
+        try:
+            mid, st = self._extract_msgid_senttime(resp if isinstance(resp, dict) else {})
+            if mid is None or st is None:
+                return
+            with self._notice_lock:
+                self._notices.setdefault(req_id, []).append((int(mid), int(st)))
+        except Exception:
+            return
+
+    def _recall_notices(self, chatroom_id: int, req_id: str) -> None:
+        if not self.enable_recall or not req_id:
+            return
+        with self._notice_lock:
+            notices = self._notices.pop(req_id, [])
+        for mid, st in notices:
+            try:
+                self.messenger.recall_message(chatroom_id, int(mid), int(st))
+            except Exception:
+                pass
+
     def _schedule_long_wait_notice(self, task: Dict[str, Any]) -> None:
         req_id = str(task.get("request_id") or "")
         chatroom_id = task.get("chatroom_id")
@@ -88,7 +139,8 @@ class AsyncLLMDispatcher:
                 with self._state_lock:
                     state = self._state.get(req_id)
                 if state in ("queued", "running"):
-                    self.messenger.send_text(int(chatroom_id), "⏳ 아직 분석 중입니다. 문서 확인 후 정리해서 보내드리겠습니다.")
+                    resp = self.messenger.send_text(int(chatroom_id), "⏳ 아직 분석 중입니다. 문서 확인 후 정리해서 보내드리겠습니다.")
+                    self.register_notice(req_id, resp)
             except Exception as e:
                 logger.warning("long wait notice failed req_id=%s err=%s", req_id, e)
 
@@ -153,6 +205,7 @@ class AsyncLLMDispatcher:
                     with self._state_lock:
                         if self._state.get(req_id) != "failed":
                             self._state[req_id] = "done"
+                    self._recall_notices(chatroom_id, req_id)
                 with self._inflight_lock:
                     self._inflight[user_key] = False
                 self._queue.task_done()

@@ -63,6 +63,10 @@ Knox 챗봇 Webhook:
 - `LLM_ONLY_SINGLE_CHAT=false`로 설정하면 그룹 트리거(멘션/접두어) 확장 가능
 - 1:1 대화는 최근 메모리를 저장/재사용하며, `/reset`으로 초기화 가능
 - 챗봇 LLM 처리 기본값은 백그라운드 큐(`LLM_WORKERS`, `LLM_JOB_QUEUE_MAX`, `LLM_MAX_CONCURRENT`)로 동작
+- `ENABLE_RECALL=true` 시 "검색 중" 안내 메시지를 완료 시 회수(recall) 시도
+- 이슈 라우팅 명령:
+  - `/issue` (등록 폼)
+  - `/issue list` 또는 `/issues` (OPEN 목록)
 
 ## 5) 테스트
 ```bash
