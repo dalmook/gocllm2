@@ -1,0 +1,20 @@
+id: psi_fab_tg
+description: "특정 월/버전 FAB_TG 합계"
+sql: |
+  SELECT SUM(FAB_TG) AS fab_tg
+  FROM mst_psi_simul_report
+  WHERE VERSION = :version
+    AND YEARMONTH = :yearmonth
+params:
+  version:
+    type: string
+    required: true
+    aliases: ["버전", "VERSION"]
+  yearmonth:
+    type: yyyymm
+    required: true
+    aliases: ["월", "년월", "YEARMONTH"]
+result:
+  mode: scalar
+  field: fab_tg
+  empty_message: "해당 조건의 FAB_TG 데이터가 없습니다."
