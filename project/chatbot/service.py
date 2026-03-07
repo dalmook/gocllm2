@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Callable, Dict, List, Tuple
+
+from .cards import build_home_card, build_quick_links_card, build_quicklink_card
+from .formatters import format_for_knox_text
+from .knox import AESCipher, KnoxMessenger
+from .router import parse_action_payload
+
+logger = logging.getLogger("hybrid-assistant.chatbot")
+
+
+DEFAULT_QUICK_LINK_ALIASES: List[Tuple[List[str], str, str]] = [
+    (["GSCM"], "🧭 GSCM", "https://dsgscm.sec.samsung.net/"),
+    (["NSCM", "O9"], "📦 NSCM", "https://nextscm.sec.samsung.net/Kibo2#/P-Mix%20Item/DRAM/P-Mix%20Item%20(DRAM)"),
+    (["컨플", "컨플루언스", "CONF", "CONFLUENCE"], "📚 컨플루언스", "https://confluence.samsungds.net/"),
+    (["파워", "파워BI", "PB", "POWERBI", "POWER BI", "BI"], "📊 Power BI", "http://10.227.100.251/Reports/browse"),
+    (["DSASSISTANT", "GPT"], "🤖 DS Assistant", "https://assistant.samsungds.net/#/main"),
+    (["GITHUB", "GIT", "깃허브", "깃헙"], "🧑‍💻 GitHub", "https://github.samsungds.net/SCM-Group-MEM/SCM_DO"),
+]
+
+
+class ChatbotService:
+    def __init__(
+        self,
+        *,
+        messenger: KnoxMessenger,
+        ask_fn: Callable[[str], Dict[str, Any]],
+        llm_chat_default_mode: str,
+        llm_group_mention_text: str,
+        llm_group_prefixes: List[str],
+        memory_reset_commands: List[str],
+        only_single_chat: bool,
+        is_allowed_user_fn: Callable[[str], bool],
+        quick_link_aliases: List[Tuple[List[str], str, str]] | None = None,
+    ):
+        self.messenger = messenger
+        self.ask_fn = ask_fn
+        self.llm_chat_default_mode = llm_chat_default_mode
+        self.llm_group_mention_text = llm_group_mention_text
+        self.llm_group_prefixes = llm_group_prefixes
+        self.memory_reset_commands = memory_reset_commands
+        self.only_single_chat = bool(only_single_chat)
+        self.is_allowed_user_fn = is_allowed_user_fn
+        self.quick_link_aliases = quick_link_aliases or DEFAULT_QUICK_LINK_ALIASES
+
+    def decrypt_request(self, body: bytes) -> Dict[str, Any]:
+        if not self.messenger.key:
+            raise RuntimeError("knox key is empty")
+        dec = AESCipher(self.messenger.key).decrypt(body)
+        return json.loads(dec)
+
+    def handle_message(self, info: Dict[str, Any]) -> Dict[str, Any]:
+        chatroom_id = int(info["chatroomId"])
+        chat_type = (info.get("chatType") or "").upper()
+        sender_knox = (info.get("senderKnoxId") or "").strip()
+        action, payload = parse_action_payload(
+            info,
+            llm_chat_default_mode=self.llm_chat_default_mode,
+            llm_group_mention_text=self.llm_group_mention_text,
+            llm_group_prefixes=self.llm_group_prefixes,
+            memory_reset_commands=self.memory_reset_commands,
+            quick_link_aliases=self.quick_link_aliases,
+        )
+
+        if action == "NOOP":
+            return {"ok": True}
+
+        if action in ("INTRO", "HOME"):
+            self.messenger.send_adaptive_card(chatroom_id, build_home_card())
+            return {"ok": True}
+
+        if action == "QUICK_LINKS":
+            self.messenger.send_adaptive_card(chatroom_id, build_quick_links_card(self.quick_link_aliases))
+            return {"ok": True}
+
+        if action == "OPEN_URL":
+            url = (payload.get("url") or "").strip()
+            title = (payload.get("title") or "🔗 바로가기").strip()
+            if not url:
+                self.messenger.send_text(chatroom_id, "링크가 비어있어요.")
+            else:
+                self.messenger.send_adaptive_card(chatroom_id, build_quicklink_card(title, url))
+            return {"ok": True}
+
+        if action == "LLM_CHAT":
+            if self.only_single_chat and chat_type != "SINGLE":
+                return {"ok": True}
+            if not self.is_allowed_user_fn(sender_knox):
+                self.messenger.send_text(chatroom_id, "권한이 없는 사용자입니다.")
+                return {"ok": True}
+
+            question = (payload.get("question") or "").strip()
+            if not question:
+                self.messenger.send_text(chatroom_id, "질문 내용이 비어있습니다. /ask 질문내용 또는 질문:내용 형식으로 입력해주세요.")
+                return {"ok": True}
+            if question in self.memory_reset_commands:
+                self.messenger.send_text(chatroom_id, "🧹 메모리 초기화 명령을 받았습니다. (현재 경량 모드)")
+                return {"ok": True}
+
+            self.messenger.send_text(chatroom_id, "🤔 검색 중입니다. 잠시만 기다려주세요...")
+            try:
+                result = self.ask_fn(question)
+                answer = str(result.get("answer") or "답변을 생성하지 못했습니다.")
+                self.messenger.send_text(chatroom_id, f"🤖 {format_for_knox_text(answer)}")
+                return {"ok": True, "intent": result.get("intent"), "request_id": result.get("request_id")}
+            except Exception as e:
+                logger.exception("chatbot ask failed")
+                self.messenger.send_text(chatroom_id, f"LLM 요청 처리 오류: {e}")
+                return {"ok": False, "error": str(e)}
+
+        self.messenger.send_adaptive_card(chatroom_id, build_home_card())
+        return {"ok": True}

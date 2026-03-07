@@ -43,6 +43,11 @@ curl -s -X POST http://127.0.0.1:8010/ask \
   -d '{"question":"2월 WC 버전 판매 몇개야"}'
 ```
 
+Knox 챗봇 Webhook:
+- `POST /message`
+- `KNOX_SYSTEM_ID`, `KNOX_TOKEN` 설정 시 startup에서 자동 연결
+- LLM 트리거는 기존과 동일하게 `SINGLE 일반문장`, `/ask`, `질문:`, `GROUP 멘션/접두어` 지원
+
 ## 5) 테스트
 ```bash
 pytest -q project/tests

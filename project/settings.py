@@ -25,7 +25,24 @@ class Settings:
     oracle_password: str = os.getenv("ORACLE_PW", os.getenv("ORACLE_PASSWORD", "mem01scm"))
     oracle_dsn: str = os.getenv("ORACLE_DSN", "")
 
+    # query catalog
     query_dir: str = os.getenv("QUERY_DIR", "project/query_registry/queries")
+
+    # knox chatbot
+    knox_host: str = os.getenv("KNOX_HOST", "https://openapi.samsung.net")
+    knox_system_id: str = os.getenv("KNOX_SYSTEM_ID", "")
+    knox_token: str = os.getenv("KNOX_TOKEN", "")
+    knox_verify_ssl: bool = os.getenv("VERIFY_SSL", "false").lower() == "true"
+    llm_chat_default_mode: str = os.getenv("LLM_CHAT_DEFAULT_MODE", "single")
+    llm_group_mention_text: str = os.getenv("LLM_GROUP_MENTION_TEXT", "@공급망 챗봇")
+    llm_group_prefixes_csv: str = os.getenv("LLM_GROUP_PREFIXES", "봇,챗봇")
+    memory_reset_commands_csv: str = os.getenv("MEMORY_RESET_COMMANDS", "/reset,기억초기화,대화초기화")
+    llm_only_single_chat: bool = os.getenv("LLM_ONLY_SINGLE_CHAT", "true").lower() == "true"
+    llm_allowed_users_sql: str = os.getenv(
+        "LLM_ALLOWED_USERS_SQL",
+        "SELECT SSO_ID FROM SCM_WP.T_T_FOR_MASTER A WHERE 1=1 AND a.sso_id in ('hy73.park','cheon.kim','suy.kim','kyungchan.seong','jh3.park','junsoo.jung','jjlive.kim','jc2573.lee','hs1979.kim','sunok78.han','sungmook.cho','hsung.chae','sj82.han','w2635.lee','sung.w.jung') AND A.DEPT_NAME LIKE '%메모리%' and a.POSITION_CODE is not null AND A.SSO_ID NOT IN ('SCM.RPA','SCM 봇','메모리STO2','메모리 STO','dalbong.chatbot01', 'dalbongbot01', 'dalbong.bot01', 'command.center', 'thatcoolguy')",
+    )
+    llm_allowed_users_cache_ttl_sec: int = int(os.getenv("LLM_ALLOWED_USERS_CACHE_TTL_SEC", "1800"))
 
 
 settings = Settings()
