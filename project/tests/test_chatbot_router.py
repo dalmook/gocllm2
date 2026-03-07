@@ -52,3 +52,15 @@ def test_watchroom_command_routes_form():
     action, payload = _parse({"chatMsg": "/watchroom", "chatType": "SINGLE"})
     assert action == "WATCHROOM_FORM"
     assert payload == {}
+
+
+def test_query_command_routes_list():
+    action, payload = _parse({"chatMsg": "/query", "chatType": "SINGLE"})
+    assert action == "QUERY_LIST"
+    assert payload == {}
+
+
+def test_query_command_routes_form_by_id():
+    action, payload = _parse({"chatMsg": "/query sales_monthly", "chatType": "SINGLE"})
+    assert action == "QUERY_FORM"
+    assert payload["query_id"] == "sales_monthly"

@@ -100,6 +100,11 @@ class DummyWatchroomStore:
         self.items.append(kwargs)
 
 
+class DummyQueryDef:
+    description = "월 매출 조회"
+    params = {"yearmonth": {"type": "yyyymm", "required": True, "aliases": ["년월"]}}
+
+
 def _service(*, only_single_chat=True, allowed=True):
     memory = DummyMemory()
     return ChatbotService(
@@ -117,6 +122,9 @@ def _service(*, only_single_chat=True, allowed=True):
         term_admin_room_ids=[12345],
         warn_runner=lambda: "⚠️ 워닝 결과: 1건",
         route_ui_to_dm_for_group=True,
+        query_catalog_provider=lambda: [{"id": "sales_monthly", "description": "월 매출"}],
+        query_meta_provider=lambda qid: DummyQueryDef() if qid == "sales_monthly" else None,
+        query_runner=lambda qid, params: {"mode": "scalar", "value": 123, "query_id": qid, "params": params},
     )
 
 
@@ -205,3 +213,22 @@ def test_group_issue_form_routes_to_dm_room():
     assert out["ok"] is True
     # UI card should be sent to DM room id created by DummyMessenger.room_create
     assert any(x[0] == "card" and x[1] == 7777 for x in svc.messenger.sent)
+
+
+def test_service_query_list_and_form():
+    svc = _service(only_single_chat=True, allowed=True)
+    out1 = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": "/query", "senderKnoxId": "u"})
+    assert out1["ok"] is True
+    assert any(x[0] == "card" for x in svc.messenger.sent)
+
+    out2 = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": "/query sales_monthly", "senderKnoxId": "u"})
+    assert out2["ok"] is True
+    assert any(x[0] == "card" and "Query 실행: sales_monthly" in str(x[2]) for x in svc.messenger.sent)
+
+
+def test_service_query_run_scalar_result():
+    svc = _service(only_single_chat=True, allowed=True)
+    msg = '{"action":"QUERY_RUN","query_id":"sales_monthly","yearmonth":"202602"}'
+    out = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": msg, "senderKnoxId": "u"})
+    assert out["ok"] is True
+    assert any(x[0] == "card" and "결과: 123" in str(x[2]) for x in svc.messenger.sent)

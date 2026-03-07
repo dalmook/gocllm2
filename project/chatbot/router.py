@@ -71,6 +71,13 @@ def parse_action_payload(
             return "ISSUE_FORM", {}
         if txt.strip() in ("/issues", "/issue list"):
             return "ISSUE_LIST", {}
+    if txt.startswith("/query"):
+        parts = txt.split()
+        if len(parts) <= 1:
+            return "QUERY_LIST", {}
+        if len(parts) >= 2 and parts[1].lower() in ("list", "목록"):
+            return "QUERY_LIST", {}
+        return "QUERY_FORM", {"query_id": parts[1].strip()}
 
     if chat_type == "SINGLE":
         key = txt_u[1:] if txt_u.startswith("/") else txt_u

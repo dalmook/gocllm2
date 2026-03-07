@@ -157,3 +157,61 @@ def build_watchroom_form_card() -> Dict:
             {"type": "Action.Submit", "title": "생성", "data": {"action": "WATCHROOM_CREATE"}}
         ],
     }
+
+
+def build_query_list_card(catalog: List[Dict]) -> Dict:
+    body: List[Dict] = [
+        {"type": "TextBlock", "weight": "Bolder", "size": "Medium", "text": "Query 목록"},
+    ]
+    actions: List[Dict] = []
+    if not catalog:
+        body.append({"type": "TextBlock", "text": "등록된 query가 없습니다.", "wrap": True})
+    else:
+        for q in catalog[:20]:
+            qid = str(q.get("id", ""))
+            desc = str(q.get("description", ""))
+            body.append({"type": "TextBlock", "wrap": True, "text": f"- {qid}: {desc}"})
+            actions.append({"type": "Action.Submit", "title": qid, "data": {"action": "QUERY_FORM", "query_id": qid}})
+    return {"type": "AdaptiveCard", "version": "1.4", "body": body, "actions": actions[:8]}
+
+
+def build_query_form_card(*, query_id: str, description: str, params: Dict[str, Dict]) -> Dict:
+    body: List[Dict] = [
+        {"type": "TextBlock", "weight": "Bolder", "size": "Medium", "text": f"Query 실행: {query_id}"},
+    ]
+    if description:
+        body.append({"type": "TextBlock", "wrap": True, "text": description})
+    for name, spec in (params or {}).items():
+        label = "/".join(spec.get("aliases", [])) if isinstance(spec.get("aliases"), list) else name
+        required = bool(spec.get("required", False))
+        body.append(
+            {
+                "type": "Input.Text",
+                "id": name,
+                "placeholder": f"{label} ({spec.get('type','string')})",
+                "isRequired": required,
+                "errorMessage": f"{name} 필수",
+            }
+        )
+    return {
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": body,
+        "actions": [
+            {"type": "Action.Submit", "title": "실행", "data": {"action": "QUERY_RUN", "query_id": query_id}},
+            {"type": "Action.Submit", "title": "목록", "data": {"action": "QUERY_LIST"}},
+        ],
+    }
+
+
+def build_query_result_card(*, title: str, rows: List[Dict], value: object = None, mode: str = "table") -> Dict:
+    body: List[Dict] = [{"type": "TextBlock", "weight": "Bolder", "size": "Medium", "text": title}]
+    if mode == "scalar":
+        body.append({"type": "TextBlock", "text": f"결과: {value}", "wrap": True})
+    else:
+        if not rows:
+            body.append({"type": "TextBlock", "text": "조회 결과가 없습니다.", "wrap": True})
+        else:
+            for r in rows[:10]:
+                body.append({"type": "TextBlock", "wrap": True, "text": " | ".join(f"{k}={v}" for k, v in r.items())})
+    return {"type": "AdaptiveCard", "version": "1.4", "body": body}

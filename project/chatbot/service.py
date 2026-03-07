@@ -13,6 +13,9 @@ from .cards import (
     build_issue_form_card,
     build_issue_history_card,
     build_issue_list_card,
+    build_query_form_card,
+    build_query_list_card,
+    build_query_result_card,
     build_quick_links_card,
     build_quicklink_card,
     build_watchroom_form_card,
@@ -56,6 +59,9 @@ class ChatbotService:
         term_admin_room_ids: List[int] | None = None,
         warn_runner: Callable[[], str] | None = None,
         route_ui_to_dm_for_group: bool = True,
+        query_catalog_provider: Callable[[], List[Dict[str, str]]] | None = None,
+        query_meta_provider: Callable[[str], Any] | None = None,
+        query_runner: Callable[[str, Dict[str, Any]], Dict[str, Any]] | None = None,
         quick_link_aliases: List[Tuple[List[str], str, str]] | None = None,
     ):
         self.messenger = messenger
@@ -73,6 +79,9 @@ class ChatbotService:
         self.term_admin_room_ids = term_admin_room_ids or []
         self.warn_runner = warn_runner
         self.route_ui_to_dm_for_group = bool(route_ui_to_dm_for_group)
+        self.query_catalog_provider = query_catalog_provider
+        self.query_meta_provider = query_meta_provider
+        self.query_runner = query_runner
         self.quick_link_aliases = quick_link_aliases or DEFAULT_QUICK_LINK_ALIASES
         self._ui_room_lock = threading.Lock()
         self._ui_room_cache: Dict[str, int] = {}
@@ -148,6 +157,76 @@ class ChatbotService:
                 self.messenger.send_text(chatroom_id, "워닝 기능이 아직 연결되지 않았습니다.")
             else:
                 self.messenger.send_text(chatroom_id, self.warn_runner())
+            return {"ok": True}
+
+        if action == "QUERY_LIST":
+            if self.query_catalog_provider is None:
+                self.messenger.send_text(chatroom_id, "Query 기능이 비활성화되어 있습니다.")
+                return {"ok": True}
+            ui_room = self._route_ui_room(chatroom_id=chatroom_id, chat_type=chat_type, sender_name=sender_name, sender_knox=sender_knox)
+            catalog = self.query_catalog_provider() or []
+            self.messenger.send_adaptive_card(ui_room, build_query_list_card(catalog))
+            return {"ok": True}
+
+        if action == "QUERY_FORM":
+            if self.query_meta_provider is None:
+                self.messenger.send_text(chatroom_id, "Query 기능이 비활성화되어 있습니다.")
+                return {"ok": True}
+            qid = str(payload.get("query_id") or "").strip()
+            if not qid:
+                self.messenger.send_text(chatroom_id, "query_id가 없습니다. (/query [id])")
+                return {"ok": True}
+            qdef = self.query_meta_provider(qid)
+            if not qdef:
+                self.messenger.send_text(chatroom_id, f"알 수 없는 query_id: {qid}")
+                return {"ok": True}
+            ui_room = self._route_ui_room(chatroom_id=chatroom_id, chat_type=chat_type, sender_name=sender_name, sender_knox=sender_knox)
+            self.messenger.send_adaptive_card(
+                ui_room,
+                build_query_form_card(query_id=qid, description=str(getattr(qdef, "description", "")), params=dict(getattr(qdef, "params", {}) or {})),
+            )
+            return {"ok": True}
+
+        if action == "QUERY_RUN":
+            if self.query_runner is None or self.query_meta_provider is None:
+                self.messenger.send_text(chatroom_id, "Query 기능이 비활성화되어 있습니다.")
+                return {"ok": True}
+            qid = str(payload.get("query_id") or "").strip()
+            if not qid:
+                self.messenger.send_text(chatroom_id, "query_id가 없습니다.")
+                return {"ok": True}
+            qdef = self.query_meta_provider(qid)
+            if not qdef:
+                self.messenger.send_text(chatroom_id, f"알 수 없는 query_id: {qid}")
+                return {"ok": True}
+            params = {}
+            for k in dict(getattr(qdef, "params", {}) or {}).keys():
+                v = payload.get(k)
+                if v not in (None, ""):
+                    params[k] = v
+            try:
+                out = self.query_runner(qid, params)
+            except Exception as e:
+                self.messenger.send_text(chatroom_id, f"쿼리 실행 실패: {e}")
+                ui_room = self._route_ui_room(chatroom_id=chatroom_id, chat_type=chat_type, sender_name=sender_name, sender_knox=sender_knox)
+                self.messenger.send_adaptive_card(
+                    ui_room,
+                    build_query_form_card(query_id=qid, description=str(getattr(qdef, "description", "")), params=dict(getattr(qdef, "params", {}) or {})),
+                )
+                return {"ok": True}
+
+            mode = str(out.get("mode") or "table")
+            ui_room = self._route_ui_room(chatroom_id=chatroom_id, chat_type=chat_type, sender_name=sender_name, sender_knox=sender_knox)
+            if mode == "scalar":
+                self.messenger.send_adaptive_card(
+                    ui_room,
+                    build_query_result_card(title=f"{qid} 결과", rows=[], value=out.get("value"), mode="scalar"),
+                )
+            else:
+                self.messenger.send_adaptive_card(
+                    ui_room,
+                    build_query_result_card(title=f"{qid} 결과", rows=list(out.get("rows") or []), mode="table"),
+                )
             return {"ok": True}
 
         if action == "TERM_UNKNOWN_SUBMIT":

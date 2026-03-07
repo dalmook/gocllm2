@@ -361,6 +361,9 @@ def startup_chatbot() -> None:
             term_admin_room_ids=[int(x) for x in settings.term_admin_room_ids_csv.split(",") if x.strip().isdigit()],
             warn_runner=_run_warn_once_message,
             route_ui_to_dm_for_group=settings.route_ui_to_dm_for_group,
+            query_catalog_provider=registry.list_for_planner,
+            query_meta_provider=registry.get,
+            query_runner=lambda query_id, params: executor.db.query(query_id, params),
         )
         if settings.enable_push_scheduler:
             push_job_manager = PushJobManager(
