@@ -6,6 +6,7 @@ import oracledb
 import pandas as pd
 
 from ..settings import settings
+from ..oracle_client import ensure_oracle_client_mode
 from ..query_registry.registry import QueryRegistry
 
 
@@ -24,6 +25,7 @@ class DBTool:
             raise ValueError(f"unknown query_id: {query_id}")
 
         safe_params = self.registry.resolve_params(query_id, params, tz=settings.timezone)
+        ensure_oracle_client_mode()
         with oracledb.connect(user=settings.oracle_user, password=settings.oracle_password, dsn=self._dsn()) as conn:
             with conn.cursor() as cur:
                 cur.execute(q.sql, safe_params)

@@ -6,6 +6,7 @@ from typing import Set
 
 import oracledb
 
+from ..oracle_client import ensure_oracle_client_mode
 from ..settings import settings
 
 
@@ -30,6 +31,7 @@ class AllowlistService:
             return set()
 
         out: Set[str] = set()
+        ensure_oracle_client_mode()
         with oracledb.connect(
             user=settings.oracle_user,
             password=settings.oracle_password,

@@ -24,6 +24,9 @@ class Settings:
     oracle_user: str = os.getenv("ORACLE_USER", "memscm")
     oracle_password: str = os.getenv("ORACLE_PW", os.getenv("ORACLE_PASSWORD", "mem01scm"))
     oracle_dsn: str = os.getenv("ORACLE_DSN", "")
+    oracle_force_thick_mode: bool = os.getenv("ORACLE_FORCE_THICK_MODE", "true").lower() == "true"
+    oracle_client_lib_dir: str = os.getenv("ORACLE_CLIENT_LIB_DIR", r"C:\instantclient")
+    oracle_client_config_dir: str = os.getenv("ORACLE_CLIENT_CONFIG_DIR", "")
 
     # query catalog
     query_dir: str = os.getenv("QUERY_DIR", "project/query_registry/queries")

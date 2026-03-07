@@ -16,6 +16,8 @@
 - `ORACLE_PW` (또는 `ORACLE_PASSWORD`)
 - `ORACLE_DSN` (권장)
   - 또는 `ORACLE_HOST`, `ORACLE_PORT`, `ORACLE_SERVICE`
+- `ORACLE_FORCE_THICK_MODE` (기본: `true`)
+- `ORACLE_CLIENT_LIB_DIR` (기본: `C:\instantclient`, 사내 환경용)
 
 기타:
 - `QUERY_DIR` (기본: `project/query_registry/queries`)
