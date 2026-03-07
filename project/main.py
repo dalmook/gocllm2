@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from .chatbot.access import AllowlistService
 from .chatbot.async_dispatch import AsyncLLMDispatcher
+from .chatbot.dashboard_view import build_dashboard_html
 from .chatbot.issue_store import IssueStore
 from .chatbot.memory import ConversationMemory, MemoryConfig
 from .chatbot.push_jobs import PushJobManager
@@ -309,17 +310,7 @@ def dashboard(token: Optional[str] = None):
             "<html><body><h3>Dashboard Login</h3><p>?token=... 파라미터를 넣어주세요.</p></body></html>",
             status_code=401,
         )
-    return HTMLResponse(
-        f"""<html><head><title>{settings.dashboard_title}</title></head>
-<body>
-<h2>{settings.dashboard_title}</h2>
-<p>API:</p>
-<ul>
-<li>/api/watchrooms?token=...</li>
-<li>/api/dashboard/issues?token=...&room_id=...</li>
-</ul>
-</body></html>"""
-    )
+    return HTMLResponse(build_dashboard_html(title=settings.dashboard_title, token=token or ""))
 
 
 @app.on_event("startup")
