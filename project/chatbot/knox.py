@@ -137,3 +137,33 @@ class KnoxMessenger:
             "sentTime": int(sent_time),
         }
         return self._post_encrypted(api, body)
+
+    def resolve_user_ids_from_loginids(self, login_ids: list[str]) -> list[str]:
+        api = "/messenger/contact/api/v1.0/profile/o1/search/loginid"
+        header = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": self.token,
+            "System-ID": self.system_id,
+            "x-device-id": self.x_device_id,
+            "x-device-type": "relation",
+        }
+        body = {"singleIdList": [{"singleId": x} for x in login_ids if x]}
+        resp = self.session.post(self.host + api, headers=header, data=json.dumps(body), verify=self.verify_ssl, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        out = []
+        for item in data.get("userSearchResult", {}).get("searchResultList", []):
+            out.append(str(item["userID"]))
+        return out
+
+    def room_create(self, receivers_userid: list[str], *, chat_type: int = 1, chatroom_title: str = "") -> int:
+        api = "/messenger/message/api/v1.0/message/createChatroomRequest"
+        body: Dict[str, Any] = {
+            "chatType": int(chat_type),
+            "receivers": receivers_userid,
+        }
+        if chatroom_title:
+            body["chatroomTitle"] = chatroom_title[:128]
+        resp = self._post_encrypted(api, body)
+        return int(resp["chatroomId"])

@@ -27,6 +27,9 @@
 - `MEMORY_MAX_TURNS` (기본: `4`)
 - `MEMORY_MAX_CHARS_PER_MESSAGE` (기본: `300`)
 - `MEMORY_DB_PATH` (미설정 시 `gocllm_memory.db`)
+- `WATCHROOM_DB_PATH` (미설정 시 `gocllm_watchrooms.db`)
+- `TERM_ADMIN_ROOM_IDS` (쉼표로 구분한 room id 목록)
+- `WARN_QUERY_ID` (워닝 조회에 사용할 query_registry id)
 
 ## 3) 쿼리 카탈로그 검증
 ```bash
@@ -67,6 +70,9 @@ Knox 챗봇 Webhook:
 - 이슈 라우팅 명령:
   - `/issue` (등록 폼)
   - `/issue list` 또는 `/issues` (OPEN 목록)
+- 기타 라우팅 명령:
+  - `/warn` (워닝 즉시 실행)
+  - `/watchroom` (공지방 생성 폼)
 
 ## 5) 테스트
 ```bash

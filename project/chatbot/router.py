@@ -62,6 +62,10 @@ def parse_action_payload(
         return "INTRO", {}
     if txt in ("바로가기", "/바로가기", "링크", "/links", "links"):
         return "QUICK_LINKS", {}
+    if txt.startswith("/warn"):
+        return "WARN_RUN", {}
+    if txt.startswith("/watchroom") or txt.startswith("/watch"):
+        return "WATCHROOM_FORM", {}
     if txt.startswith("/issue"):
         if txt.strip() in ("/issue", "/issue form"):
             return "ISSUE_FORM", {}

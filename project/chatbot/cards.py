@@ -141,3 +141,19 @@ def build_issue_history_card(events: List[Dict], *, issue_id: int, room_id: str)
             {"type": "Action.Submit", "title": "수정", "data": {"action": "ISSUE_EDIT_FORM", "issue_id": int(issue_id), "room_id": str(room_id)}},
         ],
     }
+
+
+def build_watchroom_form_card() -> Dict:
+    return {
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+            {"type": "TextBlock", "weight": "Bolder", "size": "Medium", "text": "공지방 생성"},
+            {"type": "Input.Text", "id": "room_title", "placeholder": "방 제목"},
+            {"type": "Input.Text", "id": "members", "placeholder": "참여자 SSO (콤마 구분)", "isRequired": True, "errorMessage": "참여자 필수"},
+            {"type": "Input.Text", "id": "note", "placeholder": "메모"},
+        ],
+        "actions": [
+            {"type": "Action.Submit", "title": "생성", "data": {"action": "WATCHROOM_CREATE"}}
+        ],
+    }

@@ -12,6 +12,7 @@ from .chatbot.async_dispatch import AsyncLLMDispatcher
 from .chatbot.issue_store import IssueStore
 from .chatbot.memory import ConversationMemory, MemoryConfig
 from .chatbot.service import ChatbotService
+from .chatbot.watchroom_store import WatchroomStore
 from .chatbot.knox import KnoxMessenger
 from .settings import settings
 from .llm_client import LLMClient
@@ -36,6 +37,7 @@ chatbot_service: Optional[ChatbotService] = None
 allowlist_service = AllowlistService()
 async_dispatcher: Optional[AsyncLLMDispatcher] = None
 issue_store = IssueStore(db_path=settings.issue_db_path)
+watchroom_store = WatchroomStore(db_path=settings.watchroom_db_path)
 memory_store = ConversationMemory(
     MemoryConfig(
         enabled=settings.enable_conversation_memory,
@@ -137,6 +139,22 @@ def _ask_core(question: str, *, memory_text: str = "") -> Dict[str, Any]:
     }
 
 
+def _run_warn_once_message() -> str:
+    qid = (settings.warn_query_id or "").strip()
+    if not qid:
+        return "WARN_QUERY_ID 미설정입니다."
+    if not registry.get(qid):
+        return f"WARN_QUERY_ID를 찾을 수 없습니다: {qid}"
+    try:
+        out = executor.db.query(qid, {})
+    except Exception as e:
+        return f"워닝 조회 실패: {e}"
+    rowcount = int(out.get("rowcount") or 0) if isinstance(out, dict) else 0
+    if rowcount <= 0:
+        return "워닝 조건: 현재 0건 ✅"
+    return f"⚠️ 워닝 결과: {rowcount}건"
+
+
 class AskRequest(BaseModel):
     question: str
 
@@ -156,6 +174,7 @@ def startup_chatbot() -> None:
     global chatbot_service, async_dispatcher
     memory_store.init_db()
     issue_store.init_db()
+    watchroom_store.init_db()
     if not (settings.knox_system_id and settings.knox_token):
         logger.info("knox chatbot disabled (missing KNOX_SYSTEM_ID/KNOX_TOKEN)")
         return
@@ -194,6 +213,9 @@ def startup_chatbot() -> None:
             memory_store=memory_store,
             async_dispatcher=async_dispatcher,
             issue_store=issue_store,
+            watchroom_store=watchroom_store,
+            term_admin_room_ids=[int(x) for x in settings.term_admin_room_ids_csv.split(",") if x.strip().isdigit()],
+            warn_runner=_run_warn_once_message,
         )
         logger.info("knox chatbot connected")
     except Exception as e:

@@ -40,3 +40,15 @@ def test_issue_command_routes_issue_form():
     action, payload = _parse({"chatMsg": "/issue", "chatType": "SINGLE"})
     assert action == "ISSUE_FORM"
     assert payload == {}
+
+
+def test_warn_command_routes_warn_run():
+    action, payload = _parse({"chatMsg": "/warn", "chatType": "SINGLE"})
+    assert action == "WARN_RUN"
+    assert payload == {}
+
+
+def test_watchroom_command_routes_form():
+    action, payload = _parse({"chatMsg": "/watchroom", "chatType": "SINGLE"})
+    assert action == "WATCHROOM_FORM"
+    assert payload == {}

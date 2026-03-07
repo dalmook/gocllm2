@@ -164,6 +164,19 @@ class IssueStore:
             conn.commit()
             return True
 
+    def delete_issue(self, *, issue_id: int, actor: str) -> bool:
+        now = self._now()
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("DELETE FROM issues WHERE issue_id=?", (int(issue_id),))
+            if cur.rowcount <= 0:
+                return False
+            conn.execute(
+                "INSERT INTO issue_events(issue_id, action, actor, memo, created_at) VALUES (?, 'DELETE', ?, '', ?)",
+                (int(issue_id), actor, now),
+            )
+            conn.commit()
+            return True
+
     def list_events(self, *, issue_id: int, limit: int = 20) -> List[Dict]:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(

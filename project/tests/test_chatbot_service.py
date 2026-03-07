@@ -14,6 +14,18 @@ class DummyMessenger:
         self.sent.append(("card", chatroom_id, card))
         return {"ok": True}
 
+    def resolve_user_ids_from_loginids(self, login_ids):
+        if not login_ids:
+            return []
+        return ["1001", "1002"]
+
+    def room_create(self, receivers_userid, *, chat_type=1, chatroom_title=""):
+        return 7777
+
+    def recall_message(self, chatroom_id, msg_id, sent_time):
+        self.sent.append(("recall", chatroom_id, f"{msg_id}:{sent_time}"))
+        return {"ok": True}
+
 
 class DummyMemory:
     def __init__(self):
@@ -80,6 +92,14 @@ class DummyIssueStore:
         return [{"action": "CREATE", "actor": "u", "memo": "m", "created_at": "2026-01-01"}]
 
 
+class DummyWatchroomStore:
+    def __init__(self):
+        self.items = []
+
+    def add_watch_room(self, **kwargs):
+        self.items.append(kwargs)
+
+
 def _service(*, only_single_chat=True, allowed=True):
     memory = DummyMemory()
     return ChatbotService(
@@ -93,6 +113,9 @@ def _service(*, only_single_chat=True, allowed=True):
         is_allowed_user_fn=(lambda _s: allowed),
         memory_store=memory,
         issue_store=DummyIssueStore(),
+        watchroom_store=DummyWatchroomStore(),
+        term_admin_room_ids=[12345],
+        warn_runner=lambda: "⚠️ 워닝 결과: 1건",
     )
 
 
@@ -158,3 +181,18 @@ def test_service_issue_form_and_create():
     out2 = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": payload_msg, "senderKnoxId": "u", "senderName": "u"})
     assert out2["ok"] is True
     assert any(x[0] == "text" and "등록 완료" in x[2] for x in svc.messenger.sent)
+
+
+def test_service_warn_run():
+    svc = _service(only_single_chat=True, allowed=True)
+    out = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": "/warn", "senderKnoxId": "u"})
+    assert out["ok"] is True
+    assert any(x[0] == "text" and "워닝 결과" in x[2] for x in svc.messenger.sent)
+
+
+def test_service_watchroom_create():
+    svc = _service(only_single_chat=True, allowed=True)
+    msg = '{"action":"WATCHROOM_CREATE","room_title":"공지","members":"u1,u2","note":"n"}'
+    out = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": msg, "senderKnoxId": "u", "senderName": "u"})
+    assert out["ok"] is True
+    assert any(x[0] == "text" and "공지방 생성" in x[2] for x in svc.messenger.sent)

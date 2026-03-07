@@ -14,12 +14,14 @@ from .cards import (
     build_issue_list_card,
     build_quick_links_card,
     build_quicklink_card,
+    build_watchroom_form_card,
 )
 from .formatters import format_for_knox_text
 from .issue_store import IssueStore
 from .memory import ConversationMemory
 from .knox import AESCipher, KnoxMessenger
 from .router import parse_action_payload
+from .watchroom_store import WatchroomStore
 
 logger = logging.getLogger("hybrid-assistant.chatbot")
 
@@ -49,6 +51,9 @@ class ChatbotService:
         memory_store: ConversationMemory,
         async_dispatcher: AsyncLLMDispatcher | None = None,
         issue_store: IssueStore | None = None,
+        watchroom_store: WatchroomStore | None = None,
+        term_admin_room_ids: List[int] | None = None,
+        warn_runner: Callable[[], str] | None = None,
         quick_link_aliases: List[Tuple[List[str], str, str]] | None = None,
     ):
         self.messenger = messenger
@@ -62,6 +67,9 @@ class ChatbotService:
         self.memory_store = memory_store
         self.async_dispatcher = async_dispatcher
         self.issue_store = issue_store
+        self.watchroom_store = watchroom_store
+        self.term_admin_room_ids = term_admin_room_ids or []
+        self.warn_runner = warn_runner
         self.quick_link_aliases = quick_link_aliases or DEFAULT_QUICK_LINK_ALIASES
 
     def decrypt_request(self, body: bytes) -> Dict[str, Any]:
@@ -101,6 +109,26 @@ class ChatbotService:
                 self.messenger.send_text(chatroom_id, "링크가 비어있어요.")
             else:
                 self.messenger.send_adaptive_card(chatroom_id, build_quicklink_card(title, url))
+            return {"ok": True}
+
+        if action == "WARN_RUN":
+            if self.warn_runner is None:
+                self.messenger.send_text(chatroom_id, "워닝 기능이 아직 연결되지 않았습니다.")
+            else:
+                self.messenger.send_text(chatroom_id, self.warn_runner())
+            return {"ok": True}
+
+        if action == "TERM_UNKNOWN_SUBMIT":
+            sender = (info.get("senderName") or sender_knox or "").strip()
+            findword = (payload.get("findword") or "").strip()
+            memo = (payload.get("memo") or "").strip()
+            msg = f"📩 [용어 반영 요청]\n- 단어: {findword}\n- 요청자: {sender}\n" + (f"- 메모: {memo}\n" if memo else "")
+            if self.term_admin_room_ids:
+                for rid in self.term_admin_room_ids:
+                    self.messenger.send_text(int(rid), msg)
+                self.messenger.send_text(chatroom_id, "접수 완료 ✅ (담당자에게 전달했습니다)")
+            else:
+                self.messenger.send_text(chatroom_id, "접수 완료 ✅ (TERM_ADMIN_ROOM_IDS 미설정이라 전달은 생략됨)")
             return {"ok": True}
 
         if action == "ISSUE_FORM":
@@ -202,6 +230,11 @@ class ChatbotService:
             self.messenger.send_adaptive_card(chatroom_id, build_issue_list_card(issues, room_id=str(payload.get("room_id") or chatroom_id)))
             return {"ok": True}
 
+        if action == "ISSUE_UPDATE":
+            payload = dict(payload or {})
+            payload["action"] = "ISSUE_EDIT_SAVE"
+            return self.handle_message({**info, "chatMsg": json.dumps(payload, ensure_ascii=False)})
+
         if action == "ISSUE_HISTORY":
             if self.issue_store is None:
                 self.messenger.send_text(chatroom_id, "Issue 기능이 비활성화되어 있습니다.")
@@ -212,6 +245,52 @@ class ChatbotService:
                 return {"ok": True}
             events = self.issue_store.list_events(issue_id=issue_id, limit=20)
             self.messenger.send_adaptive_card(chatroom_id, build_issue_history_card(events, issue_id=issue_id, room_id=str(payload.get("room_id") or chatroom_id)))
+            return {"ok": True}
+
+        if action == "ISSUE_DELETE":
+            if self.issue_store is None:
+                self.messenger.send_text(chatroom_id, "Issue 기능이 비활성화되어 있습니다.")
+                return {"ok": True}
+            issue_id = int(payload.get("issue_id") or 0)
+            if issue_id <= 0:
+                self.messenger.send_text(chatroom_id, "issue_id가 없습니다.")
+                return {"ok": True}
+            ok = self.issue_store.delete_issue(issue_id=issue_id, actor=(info.get("senderName") or sender_knox or ""))
+            if not ok:
+                self.messenger.send_text(chatroom_id, f"해당 이슈를 찾을 수 없습니다: #{issue_id}")
+            events = self.issue_store.list_events(issue_id=issue_id, limit=20)
+            self.messenger.send_adaptive_card(chatroom_id, build_issue_history_card(events, issue_id=issue_id, room_id=str(payload.get("room_id") or chatroom_id)))
+            return {"ok": True}
+
+        if action == "WATCHROOM_FORM":
+            self.messenger.send_adaptive_card(chatroom_id, build_watchroom_form_card())
+            return {"ok": True}
+
+        if action == "WATCHROOM_CREATE":
+            room_title = (payload.get("room_title") or "").strip()
+            members_raw = (payload.get("members") or "").strip()
+            note = (payload.get("note") or "").strip()
+            if not members_raw:
+                self.messenger.send_text(chatroom_id, "참여자 SSO가 비어있습니다. 예: sungmook.cho,cc.choi")
+                self.messenger.send_adaptive_card(chatroom_id, build_watchroom_form_card())
+                return {"ok": True}
+            members = [x.strip() for x in members_raw.replace("\n", ",").split(",") if x.strip()]
+            user_ids = self.messenger.resolve_user_ids_from_loginids(members)
+            if not user_ids:
+                self.messenger.send_text(chatroom_id, "참여자 변환(userID)이 실패했습니다. SSO가 맞는지 확인해 주세요.")
+                return {"ok": True}
+            title_to_use = room_title or note or "공지방"
+            new_room_id = self.messenger.room_create(user_ids, chat_type=1, chatroom_title=title_to_use)
+            if self.watchroom_store is not None:
+                self.watchroom_store.add_watch_room(
+                    room_id=str(new_room_id),
+                    created_by=(info.get("senderName") or sender_knox or ""),
+                    note=note,
+                    chatroom_title=title_to_use,
+                )
+            self.messenger.send_text(chatroom_id, f"✅ 공지방 생성 & 푸시대상 등록 완료\n- chatroomId: {new_room_id}\n- title: {title_to_use}\n- note: {note}")
+            self.messenger.send_text(new_room_id, "📣 이 방은 봇이 생성한 공지/워닝/이슈 방입니다.")
+            self.messenger.send_adaptive_card(new_room_id, build_home_card())
             return {"ok": True}
 
         if action == "LLM_CHAT":
