@@ -36,6 +36,72 @@ class Planner:
     def _to_yyyymm(self, year: int, month: int) -> str:
         return f"{year:04d}{month:02d}"
 
+    def _extract_relative_year(self, question: str) -> Optional[int]:
+        q = question or ""
+        now = self._now()
+        if any(tok in q for tok in ("작년", "전년")):
+            return now.year - 1
+        if any(tok in q for tok in ("올해", "금년", "당해")):
+            return now.year
+        if any(tok in q for tok in ("내년", "명년")):
+            return now.year + 1
+        return None
+
+    def _extract_period(self, question: str) -> Optional[Dict[str, str]]:
+        q = (question or "").strip()
+        now = self._now()
+
+        m = re.search(r"\b(20\d{2})(0[1-9]|1[0-2])\s*(?:~|\-|부터|to)\s*(20\d{2})(0[1-9]|1[0-2])\b", q, re.IGNORECASE)
+        if m:
+            start = f"{m.group(1)}{m.group(2)}"
+            end = f"{m.group(3)}{m.group(4)}"
+            if start <= end:
+                return {"from_yyyymm": start, "to_yyyymm": end}
+            return {"from_yyyymm": end, "to_yyyymm": start}
+
+        m = re.search(r"(20\d{2})\s*년\s*(1[0-2]|0?[1-9])\s*월\s*(?:~|\-|부터)\s*(1[0-2]|0?[1-9])\s*월", q)
+        if m:
+            year = int(m.group(1))
+            m1 = int(m.group(2))
+            m2 = int(m.group(3))
+            start_m, end_m = (m1, m2) if m1 <= m2 else (m2, m1)
+            return {
+                "from_yyyymm": self._to_yyyymm(year, start_m),
+                "to_yyyymm": self._to_yyyymm(year, end_m),
+            }
+
+        m = re.search(r"(1[0-2]|0?[1-9])\s*월\s*(?:~|\-|부터)\s*(1[0-2]|0?[1-9])\s*월", q)
+        if m:
+            m1 = int(m.group(1))
+            m2 = int(m.group(2))
+            start_m, end_m = (m1, m2) if m1 <= m2 else (m2, m1)
+            return {
+                "from_yyyymm": self._to_yyyymm(now.year, start_m),
+                "to_yyyymm": self._to_yyyymm(now.year, end_m),
+            }
+
+        m = re.search(r"\b(20\d{2})\s*년\b", q)
+        if m and any(tok in q for tok in ("연간", "전체", "누적", "매출", "판매", "합계", "수량")):
+            year = int(m.group(1))
+            return {
+                "from_yyyymm": self._to_yyyymm(year, 1),
+                "to_yyyymm": self._to_yyyymm(year, 12),
+            }
+
+        rel_year = self._extract_relative_year(q)
+        if rel_year is not None:
+            if rel_year == now.year:
+                return {
+                    "from_yyyymm": self._to_yyyymm(rel_year, 1),
+                    "to_yyyymm": self._to_yyyymm(rel_year, now.month),
+                }
+            return {
+                "from_yyyymm": self._to_yyyymm(rel_year, 1),
+                "to_yyyymm": self._to_yyyymm(rel_year, 12),
+            }
+
+        return None
+
     def _extract_yearmonth(self, question: str) -> Optional[str]:
         q = (question or "").strip()
         now = self._now()
@@ -44,13 +110,25 @@ class Planner:
         if m:
             return f"{m.group(1)}{m.group(2)}"
 
+        m = re.search(r"\b(20\d{2})[\-/](1[0-2]|0?[1-9])[\-/](3[01]|[12]?\d)\b", q)
+        if m:
+            return self._to_yyyymm(int(m.group(1)), int(m.group(2)))
+
         m = re.search(r"(20\d{2})\s*년\s*(1[0-2]|0?[1-9])\s*월", q)
         if m:
             return self._to_yyyymm(int(m.group(1)), int(m.group(2)))
 
+        m = re.search(r"\b(1[0-2]|0?[1-9])\s*/\s*(3[01]|[12]?\d)\b", q)
+        if m:
+            rel_year = self._extract_relative_year(q)
+            year = rel_year if rel_year is not None else now.year
+            return self._to_yyyymm(year, int(m.group(1)))
+
         m = re.search(r"\b(1[0-2]|0?[1-9])\s*월", q)
         if m:
-            return self._to_yyyymm(now.year, int(m.group(1)))
+            rel_year = self._extract_relative_year(q)
+            year = rel_year if rel_year is not None else now.year
+            return self._to_yyyymm(year, int(m.group(1)))
 
         if any(tok in q for tok in ("이번달", "이번 달", "금월")):
             return self._to_yyyymm(now.year, now.month)
@@ -66,7 +144,6 @@ class Planner:
     def _extract_version(self, question: str) -> Optional[str]:
         q = (question or "")
 
-        # ex) "WC 버전", "버전 WC"
         m = re.search(r"\b([A-Za-z][A-Za-z0-9_-]{0,11})\s*버전\b", q, re.IGNORECASE)
         if m:
             return m.group(1).upper()
@@ -74,7 +151,6 @@ class Planner:
         if m:
             return m.group(1).upper()
 
-        # short code fallback (avoids long words)
         for tok in re.findall(r"\b[A-Za-z]{1,6}[0-9]{0,3}\b", q):
             up = tok.upper()
             if up in {"WC", "HBM", "LPDDR", "DDR", "NAND"}:
@@ -82,10 +158,19 @@ class Planner:
 
         return None
 
-    def _extract_params(self, question: str) -> Dict[str, Any]:
+    def _extract_params(self, question: str, *, query_id: Optional[str] = None) -> Dict[str, Any]:
         params: Dict[str, Any] = {}
-        yearmonth = self._extract_yearmonth(question)
         version = self._extract_version(question)
+
+        if query_id in {"psi_sales_by_period", "psi_fab_tg_by_period"}:
+            period = self._extract_period(question)
+            if period:
+                params.update(period)
+            if version:
+                params["version"] = version
+            return params
+
+        yearmonth = self._extract_yearmonth(question)
         if yearmonth:
             params["yearmonth"] = yearmonth
         if version:
@@ -108,29 +193,39 @@ class Planner:
     def _choose_query_id(self, question: str, query_catalog: List[Dict[str, str]]) -> Optional[str]:
         q = (question or "").lower()
         ids = {c.get("id", "") for c in query_catalog}
+        has_period = self._extract_period(question) is not None
 
-        if any(k in q for k in ("fab", "fab_tg", "tg")) and "psi_fab_tg" in ids:
-            return "psi_fab_tg"
-        if any(k in q for k in ("판매", "sales", "수량", "매출")) and "psi_sales_by_month" in ids:
-            return "psi_sales_by_month"
+        if any(k in q for k in ("fab", "fab_tg", "tg")):
+            if has_period and "psi_fab_tg_by_period" in ids:
+                return "psi_fab_tg_by_period"
+            if "psi_fab_tg" in ids:
+                return "psi_fab_tg"
 
-        # deterministic fallback: first catalog item
+        if any(k in q for k in ("판매", "sales", "수량", "매출")):
+            if has_period and "psi_sales_by_period" in ids:
+                return "psi_sales_by_period"
+            if "psi_sales_by_month" in ids:
+                return "psi_sales_by_month"
+
+        if has_period and "psi_sales_by_period" in ids:
+            return "psi_sales_by_period"
+
         return query_catalog[0]["id"] if query_catalog else None
 
-    def _normalize_params(self, question: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_params(self, question: str, params: Dict[str, Any], *, query_id: Optional[str] = None) -> Dict[str, Any]:
         params = dict(params or {})
 
-        # planner deterministic extraction takes precedence for missing fields
-        extracted = self._extract_params(question)
+        extracted = self._extract_params(question, query_id=query_id)
         for k, v in extracted.items():
             params.setdefault(k, v)
 
-        # keep backward compatible 2월 형태
         ym = params.get("yearmonth")
         if isinstance(ym, str):
             m = re.fullmatch(r"\s*(\d{1,2})월\s*", ym)
             if m:
-                params["yearmonth"] = self._to_yyyymm(self._now().year, int(m.group(1)))
+                rel_year = self._extract_relative_year(question)
+                year = rel_year if rel_year is not None else self._now().year
+                params["yearmonth"] = self._to_yyyymm(year, int(m.group(1)))
 
         return params
 
@@ -145,10 +240,16 @@ class Planner:
             query_id = self._choose_query_id(question, query_catalog)
             if query_id:
                 sid = f"s{len(steps)+1}"
-                steps.append(Step(id=sid, tool="db.query", args={
-                    "query_id": query_id,
-                    "params": self._extract_params(question),
-                }))
+                steps.append(
+                    Step(
+                        id=sid,
+                        tool="db.query",
+                        args={
+                            "query_id": query_id,
+                            "params": self._extract_params(question, query_id=query_id),
+                        },
+                    )
+                )
 
         data_from = [s.id for s in steps if s.tool == "db.query"]
         rag_steps = [s.id for s in steps if s.tool == "rag.search"]
@@ -162,13 +263,12 @@ class Planner:
     def make_plan(self, question: str, query_catalog: List[Dict[str, str]]) -> Plan:
         fallback = self._build_fallback_plan(question, query_catalog)
 
-        # fallback heuristic when llm disabled
         if not self.llm.enabled:
             return fallback
 
         intent_hint = self._classify_intent(question)
-        params_hint = self._extract_params(question)
         query_hint = self._choose_query_id(question, query_catalog)
+        params_hint = self._extract_params(question, query_id=query_hint)
 
         sys_prompt = (
             "You are a strict planning engine. Output JSON only.\n"
@@ -210,7 +310,6 @@ class Planner:
             step.setdefault("args", {})
             fixed_steps.append(step)
 
-        # If model returns invalid/empty steps, use deterministic fallback.
         if not fixed_steps:
             return fallback
 
@@ -219,7 +318,7 @@ class Planner:
                 args = step.get("args", {})
                 if not args.get("query_id"):
                     args["query_id"] = query_hint
-                args["params"] = self._normalize_params(question, args.get("params", {}))
+                args["params"] = self._normalize_params(question, args.get("params", {}), query_id=args.get("query_id"))
                 step["args"] = args
 
         data = {

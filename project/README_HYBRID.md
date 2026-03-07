@@ -67,3 +67,11 @@ pytest -q project/tests
 - Executor는 허용 tool만 실행
 - `db.query`는 registry의 `query_id` 화이트리스트만 허용
 - SQL 바인딩 파라미터만 사용
+
+## 7) 기간 질문 지원
+- 기간형 질의 지원 예:
+  - `올해 매출 합계`
+  - `작년 FAB TG`
+  - `2025년 2월~4월 판매`
+  - `202501~202503 매출`
+- planner가 `from_yyyymm`, `to_yyyymm`를 추출해 기간 쿼리(`psi_sales_by_period`, `psi_fab_tg_by_period`)로 라우팅합니다.
