@@ -40,6 +40,13 @@ class Settings:
     llm_group_mention_text: str = os.getenv("LLM_GROUP_MENTION_TEXT", "@공급망 챗봇")
     llm_group_prefixes_csv: str = os.getenv("LLM_GROUP_PREFIXES", "봇,챗봇")
     memory_reset_commands_csv: str = os.getenv("MEMORY_RESET_COMMANDS", "/reset,기억초기화,대화초기화")
+    enable_conversation_memory: bool = os.getenv("ENABLE_CONVERSATION_MEMORY", "true").lower() == "true"
+    memory_only_single: bool = os.getenv("MEMORY_ONLY_SINGLE", "true").lower() == "true"
+    memory_max_turns: int = int(os.getenv("MEMORY_MAX_TURNS", "4"))
+    memory_max_chars_per_message: int = int(os.getenv("MEMORY_MAX_CHARS_PER_MESSAGE", "300"))
+    memory_summarize_assistant: bool = os.getenv("MEMORY_SUMMARIZE_ASSISTANT", "true").lower() == "true"
+    enable_conversation_state: bool = os.getenv("ENABLE_CONVERSATION_STATE", "true").lower() == "true"
+    memory_db_path: str = os.getenv("MEMORY_DB_PATH", "")
     llm_only_single_chat: bool = os.getenv("LLM_ONLY_SINGLE_CHAT", "true").lower() == "true"
     llm_allowed_users_sql: str = os.getenv(
         "LLM_ALLOWED_USERS_SQL",

@@ -22,6 +22,11 @@
 기타:
 - `QUERY_DIR` (기본: `project/query_registry/queries`)
 - `APP_TIMEZONE` (기본: `Asia/Seoul`)
+- `ENABLE_CONVERSATION_MEMORY` (기본: `true`)
+- `MEMORY_ONLY_SINGLE` (기본: `true`)
+- `MEMORY_MAX_TURNS` (기본: `4`)
+- `MEMORY_MAX_CHARS_PER_MESSAGE` (기본: `300`)
+- `MEMORY_DB_PATH` (미설정 시 `gocllm_memory.db`)
 
 ## 3) 쿼리 카탈로그 검증
 ```bash
@@ -56,6 +61,7 @@ Knox 챗봇 Webhook:
 - `KNOX_SYSTEM_ID`, `KNOX_TOKEN` 설정 시 startup에서 자동 연결
 - 기본 정책: `SINGLE(1:1)` + 권한 사용자(`LLM_ALLOWED_USERS_SQL`)만 LLM 응답
 - `LLM_ONLY_SINGLE_CHAT=false`로 설정하면 그룹 트리거(멘션/접두어) 확장 가능
+- 1:1 대화는 최근 메모리를 저장/재사용하며, `/reset`으로 초기화 가능
 
 ## 5) 테스트
 ```bash

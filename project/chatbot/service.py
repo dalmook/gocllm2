@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from .cards import build_home_card, build_quick_links_card, build_quicklink_card
 from .formatters import format_for_knox_text
+from .memory import ConversationMemory
 from .knox import AESCipher, KnoxMessenger
 from .router import parse_action_payload
 
@@ -27,13 +28,14 @@ class ChatbotService:
         self,
         *,
         messenger: KnoxMessenger,
-        ask_fn: Callable[[str], Dict[str, Any]],
+        ask_fn: Callable[..., Dict[str, Any]],
         llm_chat_default_mode: str,
         llm_group_mention_text: str,
         llm_group_prefixes: List[str],
         memory_reset_commands: List[str],
         only_single_chat: bool,
         is_allowed_user_fn: Callable[[str], bool],
+        memory_store: ConversationMemory,
         quick_link_aliases: List[Tuple[List[str], str, str]] | None = None,
     ):
         self.messenger = messenger
@@ -44,6 +46,7 @@ class ChatbotService:
         self.memory_reset_commands = memory_reset_commands
         self.only_single_chat = bool(only_single_chat)
         self.is_allowed_user_fn = is_allowed_user_fn
+        self.memory_store = memory_store
         self.quick_link_aliases = quick_link_aliases or DEFAULT_QUICK_LINK_ALIASES
 
     def decrypt_request(self, body: bytes) -> Dict[str, Any]:
@@ -97,13 +100,41 @@ class ChatbotService:
                 self.messenger.send_text(chatroom_id, "질문 내용이 비어있습니다. /ask 질문내용 또는 질문:내용 형식으로 입력해주세요.")
                 return {"ok": True}
             if question in self.memory_reset_commands:
-                self.messenger.send_text(chatroom_id, "🧹 메모리 초기화 명령을 받았습니다. (현재 경량 모드)")
+                self.memory_store.clear(str(chatroom_id))
+                self.messenger.send_text(chatroom_id, "🧹 해당 1:1 대화 메모리를 초기화했습니다.")
                 return {"ok": True}
+
+            scope_id = str(chatroom_id)
+            self.memory_store.save_message(
+                scope_id=scope_id,
+                room_id=str(chatroom_id),
+                user_id=sender_knox,
+                role="user",
+                content=question,
+                chat_type=chat_type,
+            )
+            memory_messages = self.memory_store.load_messages(scope_id=scope_id, chat_type=chat_type)
+            memory_text = self.memory_store.build_memory_text(memory_messages)
+            effective_question, state = self.memory_store.build_effective_question(scope_id=scope_id, question=question)
 
             self.messenger.send_text(chatroom_id, "🤔 검색 중입니다. 잠시만 기다려주세요...")
             try:
-                result = self.ask_fn(question)
+                result = self.ask_fn(effective_question, memory_text=memory_text)
                 answer = str(result.get("answer") or "답변을 생성하지 못했습니다.")
+                self.memory_store.save_message(
+                    scope_id=scope_id,
+                    room_id=str(chatroom_id),
+                    user_id="assistant",
+                    role="assistant",
+                    content=answer,
+                    chat_type=chat_type,
+                )
+                self.memory_store.save_state(
+                    scope_id=scope_id,
+                    topic=state.get("topic", ""),
+                    time_label=state.get("time_label", ""),
+                    last_query=effective_question,
+                )
                 self.messenger.send_text(chatroom_id, f"🤖 {format_for_knox_text(answer)}")
                 return {"ok": True, "intent": result.get("intent"), "request_id": result.get("request_id")}
             except Exception as e:

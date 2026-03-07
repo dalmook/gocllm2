@@ -15,16 +15,42 @@ class DummyMessenger:
         return {"ok": True}
 
 
+class DummyMemory:
+    def __init__(self):
+        self.messages = []
+        self.cleared = []
+
+    def clear(self, scope_id):
+        self.cleared.append(scope_id)
+
+    def save_message(self, **kwargs):
+        self.messages.append(kwargs)
+
+    def load_messages(self, **kwargs):
+        return [{"role": "user", "content": "이전 질문"}]
+
+    def build_memory_text(self, memory_messages):
+        return "이전 질문"
+
+    def build_effective_question(self, **kwargs):
+        return kwargs["question"], {"topic": "", "time_label": ""}
+
+    def save_state(self, **kwargs):
+        return None
+
+
 def _service(*, only_single_chat=True, allowed=True):
+    memory = DummyMemory()
     return ChatbotService(
         messenger=DummyMessenger(),
-        ask_fn=lambda q: {"answer": f"ans:{q}", "intent": "data_only", "request_id": "r1"},
+        ask_fn=lambda q, memory_text="": {"answer": f"ans:{q}|mem:{memory_text}", "intent": "data_only", "request_id": "r1"},
         llm_chat_default_mode="single",
         llm_group_mention_text="@공급망 챗봇",
         llm_group_prefixes=["봇", "챗봇"],
         memory_reset_commands=["/reset"],
         only_single_chat=only_single_chat,
         is_allowed_user_fn=(lambda _s: allowed),
+        memory_store=memory,
     )
 
 
@@ -49,3 +75,10 @@ def test_service_answers_for_allowed_single_user():
     assert out["ok"] is True
     assert len(svc.messenger.sent) >= 2
     assert svc.messenger.sent[0][0] == "text"
+
+
+def test_service_reset_command_clears_memory():
+    svc = _service(only_single_chat=True, allowed=True)
+    out = svc.handle_message({"chatroomId": 99, "chatType": "SINGLE", "chatMsg": "/reset", "senderKnoxId": "u"})
+    assert out["ok"] is True
+    assert "99" in svc.memory_store.cleared

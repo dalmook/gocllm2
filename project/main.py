@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from .chatbot.access import AllowlistService
+from .chatbot.memory import ConversationMemory, MemoryConfig
 from .chatbot.service import ChatbotService
 from .chatbot.knox import KnoxMessenger
 from .settings import settings
@@ -31,9 +32,20 @@ executor = Executor(registry)
 synthesizer = Synthesizer(llm)
 chatbot_service: Optional[ChatbotService] = None
 allowlist_service = AllowlistService()
+memory_store = ConversationMemory(
+    MemoryConfig(
+        enabled=settings.enable_conversation_memory,
+        only_single=settings.memory_only_single,
+        max_turns=max(1, settings.memory_max_turns),
+        max_chars_per_message=max(50, settings.memory_max_chars_per_message),
+        summarize_assistant=settings.memory_summarize_assistant,
+        enable_state=settings.enable_conversation_state,
+        db_path=settings.memory_db_path,
+    )
+)
 
 
-def _ask_core(question: str) -> Dict[str, Any]:
+def _ask_core(question: str, *, memory_text: str = "") -> Dict[str, Any]:
     request_id = str(uuid.uuid4())
     question = question.strip()
 
@@ -44,7 +56,7 @@ def _ask_core(question: str) -> Dict[str, Any]:
         if llm.enabled:
             answer = llm.invoke_text(
                 "당신은 짧고 명확하게 답변하는 비서입니다.",
-                f"질문: {question}\n가능한 범위에서 답변하세요.",
+                f"최근 대화: {memory_text}\n질문: {question}\n가능한 범위에서 답변하세요.",
             )
             return {
                 "request_id": request_id,
@@ -74,7 +86,7 @@ def _ask_core(question: str) -> Dict[str, Any]:
         if llm.enabled:
             answer = llm.invoke_text(
                 "당신은 짧고 명확하게 답변하는 비서입니다.",
-                f"질문: {question}\nDB 조회가 실패해도 가능한 범위에서 답변하세요.",
+                f"최근 대화: {memory_text}\n질문: {question}\nDB 조회가 실패해도 가능한 범위에서 답변하세요.",
             )
             return {
                 "request_id": request_id,
@@ -138,6 +150,7 @@ def ask(req: AskRequest) -> Dict[str, Any]:
 @app.on_event("startup")
 def startup_chatbot() -> None:
     global chatbot_service
+    memory_store.init_db()
     if not (settings.knox_system_id and settings.knox_token):
         logger.info("knox chatbot disabled (missing KNOX_SYSTEM_ID/KNOX_TOKEN)")
         return
@@ -160,6 +173,7 @@ def startup_chatbot() -> None:
             memory_reset_commands=[x.strip() for x in settings.memory_reset_commands_csv.split(",") if x.strip()],
             only_single_chat=settings.llm_only_single_chat,
             is_allowed_user_fn=allowlist_service.is_allowed,
+            memory_store=memory_store,
         )
         logger.info("knox chatbot connected")
     except Exception as e:
