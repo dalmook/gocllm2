@@ -69,6 +69,7 @@ class Settings:
     warn_push_hhmm: str = os.getenv("WARN_PUSH_HHMM", "08:35")
     dashboard_token: str = os.getenv("DASHBOARD_TOKEN", "")
     dashboard_title: str = os.getenv("DASHBOARD_TITLE", "GOC Issue Dashboard")
+    route_ui_to_dm_for_group: bool = os.getenv("ROUTE_UI_TO_DM_FOR_GROUP", "true").lower() == "true"
 
 
 settings = Settings()

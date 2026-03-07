@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
@@ -184,18 +185,121 @@ def api_watchrooms(token: Optional[str] = None) -> Dict[str, Any]:
 
 
 @app.get("/api/dashboard/issues")
-def api_dashboard_issues(token: Optional[str] = None, room_id: str = "", status: str = "OPEN", limit: int = 100) -> Dict[str, Any]:
+def api_dashboard_issues(
+    token: Optional[str] = None,
+    room_id: str = "",
+    status: str = "OPEN",
+    owner: str = "",
+    q: str = "",
+    page: int = 0,
+    size: int = 50,
+) -> Dict[str, Any]:
     _require_dashboard_token(token)
+
+    def _dday(s: str) -> Optional[int]:
+        t = (s or "").strip()
+        if not t:
+            return None
+        try:
+            return (datetime.strptime(t, "%Y-%m-%d").date() - datetime.now().date()).days
+        except Exception:
+            return None
+
+    def _age_days(s: str) -> int:
+        t = (s or "").strip()
+        if not t:
+            return 0
+        try:
+            d = datetime.strptime(t[:10], "%Y-%m-%d").date()
+            return max(0, (datetime.now().date() - d).days)
+        except Exception:
+            return 0
+
     if room_id:
-        items = issue_store.list_issues(scope_room_id=room_id, status=status, limit=limit)
-        return {"items": items, "total": len(items)}
+        items = issue_store.list_issues(scope_room_id=room_id, status=status, limit=max(1000, size * (page + 1)))
+    else:
+        items = []
+        for r in watchroom_store.list_rooms():
+            rid = str(r.get("room_id", ""))
+            if not rid:
+                continue
+            items.extend(issue_store.list_issues(scope_room_id=rid, status=status, limit=1000))
+
+    if owner:
+        owner_l = owner.lower()
+        items = [x for x in items if owner_l in str(x.get("owner", "")).lower()]
+    if q:
+        q_l = q.lower()
+        items = [
+            x
+            for x in items
+            if q_l in str(x.get("title", "")).lower() or q_l in str(x.get("content", "")).lower()
+        ]
+
+    for x in items:
+        x["d_day"] = _dday(str(x.get("target_date") or ""))
+        x["age_days"] = _age_days(str(x.get("created_at") or ""))
+
+    if status == "OPEN":
+        items.sort(key=lambda x: (999999 if x.get("d_day") is None else int(x.get("d_day")), -int(x.get("age_days") or 0), int(x.get("issue_id") or 0)))
     all_items = []
+    if status != "OPEN":
+        items.sort(key=lambda x: int(x.get("issue_id") or 0), reverse=True)
+    total = len(items)
+    start = max(0, int(page)) * max(1, int(size))
+    end = start + max(1, int(size))
+    all_items = items[start:end]
+    return {"items": all_items, "total": total, "page": int(page), "size": int(size)}
+
+
+@app.get("/api/dashboard/summary")
+def api_dashboard_summary(token: Optional[str] = None) -> Dict[str, Any]:
+    _require_dashboard_token(token)
+    open_items = []
     for r in watchroom_store.list_rooms():
         rid = str(r.get("room_id", ""))
-        if not rid:
-            continue
-        all_items.extend(issue_store.list_issues(scope_room_id=rid, status=status, limit=limit))
-    return {"items": all_items, "total": len(all_items)}
+        if rid:
+            open_items.extend(issue_store.list_issues(scope_room_id=rid, status="OPEN", limit=1000))
+
+    overdue = 0
+    due_7 = 0
+    for it in open_items:
+        t = str(it.get("target_date") or "")
+        try:
+            dday = (datetime.strptime(t, "%Y-%m-%d").date() - datetime.now().date()).days if t else None
+        except Exception:
+            dday = None
+        if dday is not None:
+            if dday < 0:
+                overdue += 1
+            if 0 <= dday <= 7:
+                due_7 += 1
+    return {
+        "kpi": {
+            "open_total": len(open_items),
+            "overdue": overdue,
+            "due_7": due_7,
+            "watchrooms": len(watchroom_store.list_rooms()),
+        }
+    }
+
+
+@app.post("/api/jobs/run_issue_summary")
+def api_run_issue_summary(token: Optional[str] = None) -> Dict[str, Any]:
+    _require_dashboard_token(token)
+    if push_job_manager is None:
+        return {"ok": False, "error": "push scheduler not started"}
+    push_job_manager.run_issue_summary_once()
+    return {"ok": True}
+
+
+@app.post("/api/jobs/run_warn")
+def api_run_warn(token: Optional[str] = None) -> Dict[str, Any]:
+    _require_dashboard_token(token)
+    if push_job_manager is None:
+        return {"ok": False, "error": "push scheduler not started"}
+    push_job_manager.run_warn_once()
+    return {"ok": True}
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -265,6 +369,7 @@ def startup_chatbot() -> None:
             watchroom_store=watchroom_store,
             term_admin_room_ids=[int(x) for x in settings.term_admin_room_ids_csv.split(",") if x.strip().isdigit()],
             warn_runner=_run_warn_once_message,
+            route_ui_to_dm_for_group=settings.route_ui_to_dm_for_group,
         )
         if settings.enable_push_scheduler:
             push_job_manager = PushJobManager(

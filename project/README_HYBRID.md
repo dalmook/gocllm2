@@ -34,6 +34,7 @@
 - `ISSUE_SUMMARY_PUSH_HHMM` (기본: `08:00`)
 - `WARN_PUSH_HHMM` (기본: `08:35`)
 - `DASHBOARD_TOKEN` (미설정 시 토큰 없이 접근)
+- `ROUTE_UI_TO_DM_FOR_GROUP` (기본: `true`, 그룹 액션 UI를 1:1 DM으로 라우팅)
 
 ## 3) 쿼리 카탈로그 검증
 ```bash
@@ -60,6 +61,9 @@ Dashboard:
 ```bash
 curl "http://127.0.0.1:8010/api/watchrooms?token=YOUR_TOKEN"
 curl "http://127.0.0.1:8010/api/dashboard/issues?token=YOUR_TOKEN&room_id=12345"
+curl "http://127.0.0.1:8010/api/dashboard/summary?token=YOUR_TOKEN"
+curl -X POST "http://127.0.0.1:8010/api/jobs/run_issue_summary?token=YOUR_TOKEN"
+curl -X POST "http://127.0.0.1:8010/api/jobs/run_warn?token=YOUR_TOKEN"
 ```
 
 질문:

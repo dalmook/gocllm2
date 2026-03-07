@@ -116,6 +116,7 @@ def _service(*, only_single_chat=True, allowed=True):
         watchroom_store=DummyWatchroomStore(),
         term_admin_room_ids=[12345],
         warn_runner=lambda: "⚠️ 워닝 결과: 1건",
+        route_ui_to_dm_for_group=True,
     )
 
 
@@ -196,3 +197,11 @@ def test_service_watchroom_create():
     out = svc.handle_message({"chatroomId": 1, "chatType": "SINGLE", "chatMsg": msg, "senderKnoxId": "u", "senderName": "u"})
     assert out["ok"] is True
     assert any(x[0] == "text" and "공지방 생성" in x[2] for x in svc.messenger.sent)
+
+
+def test_group_issue_form_routes_to_dm_room():
+    svc = _service(only_single_chat=True, allowed=True)
+    out = svc.handle_message({"chatroomId": 555, "chatType": "GROUP", "chatMsg": "/issue", "senderKnoxId": "u1", "senderName": "u1"})
+    assert out["ok"] is True
+    # UI card should be sent to DM room id created by DummyMessenger.room_create
+    assert any(x[0] == "card" and x[1] == 7777 for x in svc.messenger.sent)
