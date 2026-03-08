@@ -26,6 +26,7 @@ class LLMClient:
             }
             self._client = ChatOpenAI(
                 base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
                 model=settings.llm_model,
                 temperature=0.0,
                 max_tokens=800,
