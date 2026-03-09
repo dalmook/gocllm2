@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -8,9 +9,16 @@ from typing import Any, Dict, List
 
 import requests
 
+logger = logging.getLogger("hybrid-assistant.rag")
 
-RAG_DEP_TICKET = os.getenv("RAG_DEP_TICKET", "")
-RAG_API_KEY = os.getenv("RAG_API_KEY", "")
+RAG_DEP_TICKET = os.getenv(
+    "RAG_DEP_TICKET",
+    "credential:TICKET-e09692e2-45e3-46e7-ab4d-e75c06ef2b47:ST0000106045-PROD:n591JsqkTh-51wynrJeZ3Qbk2a5Oo2TfGDc9P6pAkN9Q:-1:bjU5MUpzcWtUaC01MXd5bnJKZVozUWJrMmE1T28yVGZHRGM5UDZwQWtOOVE=:signature=x-Dh7diDnQqQAVyfObfHxQoqHxyH7zGC4irZ9vA0Wgfi9zNURR853sMEXG5QcMnYUHXCclma5dGSMwDWSOgGQBvesPSHRz3zvarPfkcFqovLv6OgNZw_X5A==",
+)
+RAG_API_KEY = os.getenv(
+    "RAG_API_KEY",
+    "rag-laeeKyA.KazNAgzjr-d1iK9rUClS2vdqKLZ4oOOcsOhhuR3tJaAYa3h73BE7SdjgLjxQsEtJCN6Oc7B1mJYq1Pu_ruTKmcmeujAVpmDxms44OdjGCeHGBTisaSFHdqyepsbEa3nw",
+)
 RAG_BASE_URL = os.getenv("RAG_BASE_URL", "http://apigw.samsungds.net:8000/ds_llm_rag/2/dsllmrag/elastic/v2")
 RAG_INDEXES = os.getenv("RAG_INDEXES", "rp-gocinfo_mail_jsonl,glossary_m3_100chunk50")
 RAG_PERMISSION_GROUPS = os.getenv("RAG_PERMISSION_GROUPS", "rag-public")
@@ -18,7 +26,7 @@ RAG_RETRIEVE_MODE = os.getenv("RAG_RETRIEVE_MODE", "hybrid").lower()
 RAG_BM25_BOOST = float(os.getenv("RAG_BM25_BOOST", "0.025"))
 RAG_KNN_BOOST = float(os.getenv("RAG_KNN_BOOST", "7.98"))
 RAG_API_MAX_NUM_RESULT_DOC = int(os.getenv("RAG_API_MAX_NUM_RESULT_DOC", "100"))
-RAG_TIMEOUT_SEC = int(os.getenv("RAG_TIMEOUT_SEC", "30"))
+RAG_TIMEOUT_SEC = int(os.getenv("RAG_TIMEOUT_SEC", "20"))
 
 
 def _sanitize_query(query: str) -> str:
@@ -128,6 +136,7 @@ class RagTool:
         rag = RagClient(api_key=RAG_API_KEY, dep_ticket=RAG_DEP_TICKET, base_url=RAG_BASE_URL)
 
         all_results: List[Dict[str, Any]] = []
+        errors: List[str] = []
         for index in indexes:
             try:
                 response = rag.retrieve(
@@ -140,7 +149,9 @@ class RagTool:
                     bm25_boost=RAG_BM25_BOOST,
                     knn_boost=RAG_KNN_BOOST,
                 )
-            except Exception:
+            except Exception as e:
+                errors.append(f"{index}: {e}")
+                logger.warning("RAG retrieve failed index=%s err=%s", index, e)
                 continue
 
             hits = (response.get("hits") or {}).get("hits", []) if isinstance(response, dict) else []
@@ -163,6 +174,15 @@ class RagTool:
                 )
 
         all_results.sort(key=lambda x: float((x.get("meta") or {}).get("score", 0.0)), reverse=True)
+        if not all_results and errors:
+            raise RuntimeError(f"RAG retrieval failed for all indexes: {' | '.join(errors)}")
+        logger.info(
+            "RAG search done query=%s indexes=%s results=%s errors=%s",
+            sanitized_query,
+            indexes,
+            len(all_results),
+            len(errors),
+        )
         return all_results[:num_result_doc]
 
     def extract_entities(self, docs: List[Dict[str, Any]], schema: List[str]) -> Dict[str, Any]:
