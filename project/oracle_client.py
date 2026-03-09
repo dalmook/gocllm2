@@ -23,8 +23,8 @@ def ensure_oracle_client_mode() -> None:
             return
 
         kwargs = {}
-        if (settings.oracle_client_lib_dir or "").strip():
-            kwargs["lib_dir"] = settings.oracle_client_lib_dir.strip()
+        lib_dir = (settings.oracle_client_lib_dir or "").strip() or r"C:\instantclient"
+        kwargs["lib_dir"] = lib_dir
         if (settings.oracle_client_config_dir or "").strip():
             kwargs["config_dir"] = settings.oracle_client_config_dir.strip()
 
