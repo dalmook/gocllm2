@@ -124,14 +124,6 @@ def _ask_core(question: str, *, memory_text: str = "") -> Dict[str, Any]:
         if st.tool == "db.query":
             data_evidence.append(out)
 
-    rag_failed = any(
-        log.get("tool") == "rag.search" and log.get("status") == "error"
-        for log in ran.get("step_logs", [])
-        if isinstance(log, dict)
-    )
-    if rag_failed and not rag_evidence:
-        answer = "참고: RAG 문서 검색에 실패하여 일반 답변 모드로 응답했습니다.\n\n" + answer
-
     logger.info(
         "request_id=%s intent=%s steps=%s",
         request_id,

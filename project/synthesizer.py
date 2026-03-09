@@ -10,23 +10,23 @@ class Synthesizer:
         self.llm = llm
 
     @staticmethod
-    def _truncate_text(text: str, limit: int = 900) -> str:
+    def _truncate_text(text: str, limit: int = 2200) -> str:
         s = (text or "").strip()
         if len(s) <= limit:
             return s
         return s[:limit] + " ..."
 
     @staticmethod
-    def _pick_snippet(doc: Dict[str, Any]) -> str:
+    def _pick_content(doc: Dict[str, Any]) -> str:
         source = doc.get("_source") if isinstance(doc.get("_source"), dict) else {}
         for key in (
-            "snippet",
             "content",
+            "merge_title_content",
             "summary",
+            "snippet",
             "text",
             "body",
             "description",
-            "merge_title_content",
             "chunk_text",
             "page_content",
             "mail_body",
@@ -41,26 +41,59 @@ class Synthesizer:
                 return s_value.strip()
         return ""
 
-    def _format_rag_context(self, rag_data: List[Dict[str, Any]], max_docs: int = 4) -> str:
+    @staticmethod
+    def _pick_link(doc: Dict[str, Any]) -> str:
+        source = doc.get("_source") if isinstance(doc.get("_source"), dict) else {}
+        for key in ("confluence_mail_page_url", "url", "source_url", "doc_url", "link"):
+            value = doc.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            s_value = source.get(key)
+            if isinstance(s_value, str) and s_value.strip():
+                return s_value.strip()
+        return ""
+
+    def _format_rag_context(self, rag_data: List[Dict[str, Any]], max_docs: int = 3) -> str:
         if not rag_data:
             return ""
         parts: List[str] = []
         for i, doc in enumerate(rag_data[:max(1, max_docs)], 1):
             meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
-            title = str(doc.get("title") or "제목 없음").strip()
-            link = str(doc.get("link") or "").strip()
-            score = meta.get("score", 0)
-            index = str(meta.get("index") or "").strip()
-            snippet = self._truncate_text(self._pick_snippet(doc), 900)
+            title = str(doc.get("title") or doc.get("doc_id") or "제목 없음").strip()
+            index = str(doc.get("_index") or meta.get("index") or "").strip()
+            doc_date = str(doc.get("_doc_date") or meta.get("doc_date") or "날짜 정보 없음").strip()
+            score = doc.get("_combined_score")
+            if score is None:
+                score = meta.get("combined_score", doc.get("_score", meta.get("score", 0)))
+            content = self._truncate_text(self._pick_content(doc), 2200)
+            link = self._pick_link(doc)
             parts.append(
                 f"[문서 {i}]\n"
                 f"제목: {title}\n"
+                f"문서일시: {doc_date}\n"
+                f"종합점수: {score}\n"
                 f"인덱스: {index}\n"
-                f"점수: {score}\n"
-                f"내용: {snippet}\n"
+                f"내용: {content}\n"
                 f"출처: {link}"
             )
         return "\n\n".join(parts)
+
+    def _append_source_lines(self, answer: str, rag_data: List[Dict[str, Any]], max_docs: int = 3) -> str:
+        if "📂 근거 문서" in answer:
+            return answer
+        lines: List[str] = []
+        for doc in rag_data[:max(1, max_docs)]:
+            title = str(doc.get("title") or "제목 없음")
+            meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+            doc_date = str(doc.get("_doc_date") or meta.get("doc_date") or "날짜 정보 없음")
+            url = self._pick_link(doc)
+            line = f"- {title} | {doc_date}"
+            if url:
+                line += f"\n  🔗 GO LINK: {url}"
+            lines.append(line)
+        if not lines:
+            return answer
+        return answer + "\n\n📂 근거 문서\n" + "\n".join(lines)
 
     def compose(self, question: str, ctx: Dict[str, Any], compose_args: Dict[str, Any]) -> str:
         rag_from = compose_args.get("rag_from")
@@ -68,7 +101,6 @@ class Synthesizer:
 
         rag_data: List[Dict[str, Any]] = ctx.get(rag_from, []) if rag_from else []
         data_parts = [ctx.get(sid) for sid in data_from]
-        rag_context = self._format_rag_context(rag_data, max_docs=4)
 
         if not self.llm.enabled:
             chunks = []
@@ -78,15 +110,47 @@ class Synthesizer:
                 chunks.append(f"DB/계산 결과 {len(data_parts)}건")
             return f"질문: {question}\n" + " | ".join(chunks)
 
-        system_prompt = (
-            "당신은 짧고 명확하게 답변하는 비서입니다. "
-            "제공된 근거만 사용하고 SQL을 만들거나 추측하지 마세요. "
-            "근거가 충분하면 핵심 사실을 구체적으로 요약하고, 근거가 부족하면 부족한 항목을 한 줄로 명시하세요."
+        if rag_data:
+            rag_context = self._format_rag_context(rag_data, max_docs=3)
+            system_prompt = (
+                "당신은 GOC 업무 지원 챗봇입니다.\n\n"
+                "최우선 규칙\n"
+                "1) 아래 [검색 문서]에 있는 내용만을 근거로 '📂 문서 기반 답변'을 작성하세요. (추측/일반상식/외부지식 금지)\n"
+                "2) 문서에 없는 내용은 반드시 '문서에 해당 정보가 없습니다.'라고 명시하세요.\n"
+                "3) 질문에 기간(이번주/저번주/지난주/오늘/어제/최근N일)이 포함되면, 답변 첫 줄 또는 요약에 적용한 기간을 반드시 명시하세요.\n"
+                "4) 질문에 기간 지정이 없으면, 검색 문서 중 가장 최신 문서일시를 기준으로 답변하고 기준 문서일시를 명시하세요.\n"
+                "5) 문서 간 내용이 다르면 가장 최신 문서를 우선하고, '문서 간 상충'이라고 표시하세요.\n"
+                "6) 답변의 항목/불릿은 가능한 한 문서일시 최신순(내림차순)으로 배치하세요.\n"
+                "7) '💡 AI 의견'은 참고용 보충설명만 가능하며, 문서 사실처럼 단정하지 마세요.\n"
+            )
+            user_prompt = (
+                f"질문: {question}\n\n"
+                f"[검색 문서]\n{rag_context}\n\n"
+                f"DB/계산 결과: {data_parts}\n\n"
+                "출력 형식(아래 순서/제목 유지)\n"
+                "📌 한줄 요약\n"
+                "- (기간/기준일시 포함 1문장)\n\n"
+                "📂 문서 기반 답변\n"
+                "- 핵심 사실 2~5개\n"
+                "- 문서에 없는 부분은 '문서에 해당 정보가 없습니다.'\n\n"
+                "💡 AI 의견\n"
+                "- 참고용 해석 1~3개\n\n"
+                "📂 근거 문서\n"
+                "- 문서명 | 문서일시 | 근거한줄 | 링크 (최대 3개)"
+            )
+            answer = self.llm.invoke_text(system_prompt, user_prompt)
+            return self._append_source_lines(answer.strip(), rag_data, max_docs=3)
+
+        fallback_system_prompt = (
+            "당신은 GOC 업무 지원 챗봇입니다. "
+            "이번 질문은 문서 검색 결과가 없거나 관련성이 낮아 일반 LLM 답변으로 안내합니다. "
+            "과도한 추측은 피하고, 불확실한 내용은 단정하지 마세요."
         )
-        user_prompt = (
-            f"질문: {question}\n\n"
-            f"RAG 근거:\n{rag_context}\n\n"
-            f"DB/계산 결과: {data_parts}\n\n"
-            "요구사항: 1) 핵심답 2~4문장 2) 마지막 줄에 근거 요약(문서번호 포함)"
+        fallback_user_prompt = (
+            "📋 문서 기반 답변 미적용\n"
+            "- 관련 문서를 찾지 못했거나 질문과의 관련성이 낮았습니다.\n"
+            "- 아래는 일반 LLM 답변입니다.\n\n"
+            f"질문: {question}\n"
+            f"DB/계산 결과: {data_parts}"
         )
-        return self.llm.invoke_text(system_prompt, user_prompt)
+        return self.llm.invoke_text(fallback_system_prompt, fallback_user_prompt).strip()
