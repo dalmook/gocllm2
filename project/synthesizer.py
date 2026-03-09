@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List
 
-from .llm_client import LLMClient
+if TYPE_CHECKING:
+    from .llm_client import LLMClient
 
 
 class Synthesizer:
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: "LLMClient"):
         self.llm = llm
 
     @staticmethod
@@ -133,12 +134,29 @@ class Synthesizer:
     def _looks_like_clarification_request(answer: str) -> bool:
         t = (answer or "").strip().lower()
         patterns = [
+            "무슨 뜻",
+            "무엇인지",
+            "무엇을 의미",
+            "약어",
             "무엇을 의미",
             "구체적으로 알려",
             "추가 정보를",
+            "추가 정보",
+            "더 자세한 정보",
+            "명확히 해",
             "설명해주실",
             "의미하는 바",
+            "질문하신",
+            "확인해 주",
+            "확인 부탁",
+            "정확히 어떤",
+            "어떤 의미",
+            "어떤 것을",
             "what does",
+            "what is",
+            "what does it mean",
+            "could you provide more context",
+            "need more context",
             "please clarify",
             "could you clarify",
         ]
@@ -167,9 +185,10 @@ class Synthesizer:
         data_parts = [ctx.get(sid) for sid in data_from]
 
         if not self.llm.enabled:
-            chunks = []
+            # 기존 체감 동작 보존: 문서가 있으면 되묻기 없이 문서 요약을 바로 반환한다.
             if rag_data:
-                chunks.append(f"RAG {len(rag_data)}건 참고")
+                return self._compose_doc_only_fallback(question, rag_data, max_docs=3)
+            chunks = []
             if data_parts:
                 chunks.append(f"DB/계산 결과 {len(data_parts)}건")
             return f"질문: {question}\n" + " | ".join(chunks)
@@ -203,9 +222,12 @@ class Synthesizer:
                 "📂 근거 문서\n"
                 "- 문서명 | 문서일시 | 근거한줄 | 링크 (최대 3개)"
             )
-            answer = self.llm.invoke_text(system_prompt, user_prompt)
-            answer = answer.strip()
-            if self._looks_like_clarification_request(answer):
+            # 코드 레벨 가드: 문서가 한 건이라도 있으면 clarification 응답을 허용하지 않고 문서 요약으로 치환한다.
+            try:
+                answer = self.llm.invoke_text(system_prompt, user_prompt).strip()
+            except Exception:
+                return self._compose_doc_only_fallback(question, rag_data, max_docs=3)
+            if not answer or self._looks_like_clarification_request(answer):
                 return self._compose_doc_only_fallback(question, rag_data, max_docs=3)
             return self._append_source_lines(answer, rag_data, max_docs=3)
 
