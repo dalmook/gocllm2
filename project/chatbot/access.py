@@ -25,6 +25,17 @@ class AllowlistService:
             service_name=settings.oracle_service,
         )
 
+    @staticmethod
+    def _normalize_knox_id(value: str) -> str:
+        sid = (value or "").strip().lower()
+        if not sid:
+            return ""
+        if "\\" in sid:
+            sid = sid.rsplit("\\", 1)[-1].strip()
+        if "@" in sid:
+            sid = sid.split("@", 1)[0].strip()
+        return sid
+
     def _fetch_allowed_users(self) -> Set[str]:
         sql = (settings.llm_allowed_users_sql or "").strip()
         if not sql:
@@ -42,13 +53,13 @@ class AllowlistService:
                 for row in cur.fetchall():
                     if not row:
                         continue
-                    sid = str(row[0] or "").strip().lower()
+                    sid = self._normalize_knox_id(str(row[0] or ""))
                     if sid:
                         out.add(sid)
         return out
 
     def is_allowed(self, sender_knox: str) -> bool:
-        sid = (sender_knox or "").strip().lower()
+        sid = self._normalize_knox_id(sender_knox)
         if not sid:
             return False
 
@@ -65,7 +76,9 @@ class AllowlistService:
                 if self._cache:
                     self._expire_at = now_ts + 60.0
                     return sid in self._cache
-            allowed = set()
+                # 캐시가 없는 상태에서 조회 실패 시 빈 목록을 장시간 캐시하지 않는다.
+                self._expire_at = now_ts + 10.0
+            return False
 
         with self._lock:
             self._cache = allowed

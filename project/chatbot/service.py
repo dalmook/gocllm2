@@ -417,6 +417,7 @@ class ChatbotService:
             if self.only_single_chat and chat_type != "SINGLE":
                 return {"ok": True}
             if not self.is_allowed_user_fn(sender_knox):
+                logger.info("llm access denied sender_knox=%s chat_type=%s", sender_knox, chat_type)
                 self.messenger.send_text(chatroom_id, "권한이 없는 사용자입니다.")
                 return {"ok": True}
 
