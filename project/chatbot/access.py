@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Set
 
 from ..oracle_client import ensure_oracle_client_mode
 from ..settings import settings
+
+logger = logging.getLogger("hybrid-assistant.chatbot.access")
 
 
 class AllowlistService:
@@ -37,6 +40,8 @@ class AllowlistService:
         return sid
 
     def _fetch_allowed_users(self) -> Set[str]:
+        import oracledb
+
         sql = (settings.llm_allowed_users_sql or "").strip()
         if not sql:
             return set()
@@ -70,7 +75,8 @@ class AllowlistService:
 
         try:
             allowed = self._fetch_allowed_users()
-        except Exception:
+        except Exception as e:
+            logger.exception("allowlist fetch failed: %s", e)
             # DB 장애 시 stale cache fallback
             with self._lock:
                 if self._cache:
