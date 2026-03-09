@@ -89,4 +89,6 @@ class AllowlistService:
         with self._lock:
             self._cache = allowed
             self._expire_at = now_ts + max(0, int(settings.llm_allowed_users_cache_ttl_sec))
-            return sid in self._cache
+            ok = sid in self._cache
+            logger.info("allowlist refreshed count=%d target=%s allowed=%s", len(self._cache), sid, ok)
+            return ok
