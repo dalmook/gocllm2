@@ -129,6 +129,36 @@ class Synthesizer:
             return answer
         return answer + "\n\n📂 근거 문서\n" + "\n".join(lines)
 
+    @staticmethod
+    def _looks_like_clarification_request(answer: str) -> bool:
+        t = (answer or "").strip().lower()
+        patterns = [
+            "무엇을 의미",
+            "구체적으로 알려",
+            "추가 정보를",
+            "설명해주실",
+            "의미하는 바",
+            "what does",
+            "please clarify",
+            "could you clarify",
+        ]
+        return any(p in t for p in patterns)
+
+    def _compose_doc_only_fallback(self, question: str, rag_data: List[Dict[str, Any]], max_docs: int = 3) -> str:
+        lines: List[str] = ["📌 한줄 요약", "- 검색 문서 기준으로 이번 이슈를 요약했습니다.", "", "📂 문서 기반 답변"]
+        for doc in rag_data[:max(1, max_docs)]:
+            meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+            title = str(doc.get("title") or "제목 없음").strip()
+            doc_date = str(doc.get("_doc_date") or meta.get("doc_date") or "날짜 정보 없음").strip()
+            content = self._pick_content(doc)
+            brief = self._truncate_text(content, 220).replace("\n", " ")
+            if not brief:
+                brief = title
+            lines.append(f"- ({doc_date}) {brief}")
+        lines.extend(["", "💡 AI 의견", "- 문서 기반 요약이며, 세부 영향도는 추가 확인이 필요합니다."])
+        out = "\n".join(lines)
+        return self._append_source_lines(out, rag_data, max_docs=max_docs)
+
     def compose(self, question: str, ctx: Dict[str, Any], compose_args: Dict[str, Any]) -> str:
         rag_from = compose_args.get("rag_from")
         data_from = compose_args.get("data_from", [])
@@ -156,6 +186,7 @@ class Synthesizer:
                 "5) 문서 간 내용이 다르면 가장 최신 문서를 우선하고, '문서 간 상충'이라고 표시하세요.\n"
                 "6) 답변의 항목/불릿은 가능한 한 문서일시 최신순(내림차순)으로 배치하세요.\n"
                 "7) '💡 AI 의견'은 참고용 보충설명만 가능하며, 문서 사실처럼 단정하지 마세요.\n"
+                "8) 사용자에게 되묻거나 추가 설명을 요구하지 마세요. 문서가 있는 한 문서 내용으로 바로 답하세요.\n"
             )
             user_prompt = (
                 f"질문: {question}\n\n"
@@ -173,7 +204,10 @@ class Synthesizer:
                 "- 문서명 | 문서일시 | 근거한줄 | 링크 (최대 3개)"
             )
             answer = self.llm.invoke_text(system_prompt, user_prompt)
-            return self._append_source_lines(answer.strip(), rag_data, max_docs=3)
+            answer = answer.strip()
+            if self._looks_like_clarification_request(answer):
+                return self._compose_doc_only_fallback(question, rag_data, max_docs=3)
+            return self._append_source_lines(answer, rag_data, max_docs=3)
 
         fallback_system_prompt = (
             "당신은 GOC 업무 지원 챗봇입니다. "
