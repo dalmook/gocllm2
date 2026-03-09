@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 from .llm_client import LLMClient
@@ -39,7 +40,40 @@ class Synthesizer:
             s_value = source.get(key)
             if isinstance(s_value, str) and s_value.strip():
                 return s_value.strip()
-        return ""
+        return Synthesizer._pick_fallback_content(doc)
+
+    @staticmethod
+    def _collect_text_fragments(obj: Any, out: List[str], *, depth: int = 0) -> None:
+        if depth > 3 or len(out) >= 12:
+            return
+        if isinstance(obj, str):
+            s = re.sub(r"\s+", " ", obj).strip()
+            if len(s) >= 20 and not s.startswith(("http://", "https://")):
+                out.append(s)
+            return
+        if isinstance(obj, dict):
+            for _, v in obj.items():
+                Synthesizer._collect_text_fragments(v, out, depth=depth + 1)
+            return
+        if isinstance(obj, list):
+            for item in obj[:20]:
+                Synthesizer._collect_text_fragments(item, out, depth=depth + 1)
+
+    @staticmethod
+    def _pick_fallback_content(doc: Dict[str, Any]) -> str:
+        frags: List[str] = []
+        Synthesizer._collect_text_fragments(doc, frags)
+        dedup: List[str] = []
+        seen = set()
+        for f in frags:
+            key = f[:120]
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup.append(f)
+        if not dedup:
+            return ""
+        return "\n".join(dedup[:3])[:3500]
 
     @staticmethod
     def _pick_link(doc: Dict[str, Any]) -> str:

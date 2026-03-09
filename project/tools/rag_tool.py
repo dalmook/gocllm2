@@ -535,7 +535,59 @@ def _pick_best_snippet(doc: Dict[str, Any]) -> str:
         value = doc.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return ""
+    source = doc.get("_source")
+    if isinstance(source, dict):
+        for key in (
+            "content",
+            "merge_title_content",
+            "summary",
+            "snippet",
+            "text",
+            "body",
+            "description",
+            "chunk_text",
+            "page_content",
+            "mail_body",
+            "body_text",
+            "document_text",
+        ):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return _pick_fallback_snippet(doc)
+
+
+def _collect_text_fragments(obj: Any, out: List[str], *, depth: int = 0) -> None:
+    if depth > 3 or len(out) >= 12:
+        return
+    if isinstance(obj, str):
+        s = re.sub(r"\s+", " ", obj).strip()
+        if len(s) >= 20 and not s.startswith(("http://", "https://")):
+            out.append(s)
+        return
+    if isinstance(obj, dict):
+        for _, v in obj.items():
+            _collect_text_fragments(v, out, depth=depth + 1)
+        return
+    if isinstance(obj, list):
+        for item in obj[:20]:
+            _collect_text_fragments(item, out, depth=depth + 1)
+
+
+def _pick_fallback_snippet(doc: Dict[str, Any]) -> str:
+    frags: List[str] = []
+    _collect_text_fragments(doc, frags)
+    dedup: List[str] = []
+    seen = set()
+    for f in frags:
+        key = f[:120]
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(f)
+    if not dedup:
+        return ""
+    return "\n".join(dedup[:3])[:3500]
 
 
 def _enrich_doc_for_output(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -544,6 +596,8 @@ def _enrich_doc_for_output(doc: Dict[str, Any]) -> Dict[str, Any]:
         out["title"] = str(out.get("doc_id") or out.get("id") or "제목 없음")
     out["link"] = _pick_best_link(out)
     out["snippet"] = _pick_best_snippet(out)
+    if not out.get("content") and out.get("snippet"):
+        out["content"] = out["snippet"]
     out["meta"] = {
         "index": out.get("_index", ""),
         "score": out.get("_score", 0.0),
@@ -725,6 +779,19 @@ class RagTool:
                 selected_docs = top_docs
 
         out = [_enrich_doc_for_output(d) for d in selected_docs]
+        if out:
+            debug_docs = []
+            for d in out[:3]:
+                snippet_len = len(str(d.get("snippet") or ""))
+                debug_docs.append(
+                    {
+                        "title": str(d.get("title") or "")[:80],
+                        "doc_date": str(d.get("_doc_date") or d.get("meta", {}).get("doc_date") or ""),
+                        "score": d.get("_combined_score", d.get("meta", {}).get("combined_score")),
+                        "snippet_len": snippet_len,
+                    }
+                )
+            logger.info("RAG selected docs preview=%s", debug_docs)
         logger.info(
             "RAG search done query=%s normalized=%s indexes=%s candidates=%s results=%s",
             effective_question,
