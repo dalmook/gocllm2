@@ -42,7 +42,20 @@ def _parse_permission_groups(raw: str) -> List[str]:
 
 
 def _pick_best_source(doc: Dict[str, Any]) -> str:
-    for key in ("summary", "snippet", "content", "text", "body", "description"):
+    for key in (
+        "summary",
+        "snippet",
+        "content",
+        "text",
+        "body",
+        "description",
+        "merge_title_content",
+        "chunk_text",
+        "page_content",
+        "mail_body",
+        "body_text",
+        "document_text",
+    ):
         value = doc.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
